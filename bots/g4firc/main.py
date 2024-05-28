@@ -19,14 +19,14 @@ from ircbot.format import format_line_breaks, markdown_to_irc
 
 load_dotenv()
 
-NICK = os["NICK"]
-SERVER = os["SERVER"]
-CHANNELS = json.loads(os["CHANNELS"])
-PORT = int(os.get("PORT") or 6667)
-PASSWORD = os["PASSWORD"] if "PASSWORD" in os else None
-SSL = os["SSL"] == "true"
-DATABASE = os.get("DATABASE") or "database.db"
-MAX_CHATS_PER_USER = int(os.get("MAX_CHATS_PER_USER") or 10)
+NICK = os.environ["NICK"]
+SERVER = os.environ["IRC_HOST"]
+CHANNELS = json.loads(os.environ["CHANNELS"])
+PORT = int(os.environ.get("IRC_PORT") or 6667)
+PASSWORD = os.environ["PASSWORD"] if "PASSWORD" in os.environ else None
+SSL = os.environ["IRC_SSL"] == "true"
+DATABASE = os.environ.get("DATABASE") or "database.db"
+MAX_CHATS_PER_USER = int(os.environ.get("MAX_CHATS_PER_USER") or 10)
 
 PROVIDER_BLACKLIST = ["bing"]
 
