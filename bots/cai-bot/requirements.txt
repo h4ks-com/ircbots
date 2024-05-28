@@ -1,0 +1,10 @@
+characterai @ git+https://github.com/kramcat/CharacterAI.git@main
+async_lru==2.0.4
+re-ircbot==2.0.12-dev
+# re-ircbot @ git+https://github.com/matheusfillipe/ircbot.git@526d72fa2cdee54c6195198c63705f30afba25ab
+trio-asyncio==0.12.0
+tls-client==1.0.1
+python-dotenv==1.0.1
+websockets==12.0
+beautifulsoup4==4.12.3
+pygments==2.18.0
