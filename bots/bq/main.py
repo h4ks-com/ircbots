@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 from google.cloud.exceptions import ClientError
 from ircbot import IrcBot, Message, ReplyIntent
 from ircbot.format import format_line_breaks, markdown_to_irc
-
 from lib import MAX_PROCESSING_SIZE, bq_process_size, bq_query, bq_schema, human_size
 
 load_dotenv()
@@ -36,7 +35,10 @@ class BotData:
         return message.channel.casefold(), message.nick.casefold()
 
     def initiated(self, message: Message) -> bool:
-        return self._prepare_msg(message) in self.accumulated_queries and not self.is_finished
+        return (
+            self._prepare_msg(message) in self.accumulated_queries
+            and not self.is_finished
+        )
 
     def count_lines(self, message: Message) -> int:
         return self.accumulated_queries[self._prepare_msg(message)].line_count
@@ -55,7 +57,9 @@ class BotData:
         if not self.is_finished:
             raise ValueError("Query is not finished. It should end with `;`")
         self.is_finished = False
-        return self.accumulated_queries.pop(self._prepare_msg(message)).accumulated_query
+        return self.accumulated_queries.pop(
+            self._prepare_msg(message)
+        ).accumulated_query
 
 
 class BqBot(IrcBot):
@@ -101,7 +105,10 @@ async def accumulate_query(message: Message):
     bot.accumulated_queries.append(message, message.text)
     if not bot.accumulated_queries.is_finished:
         if bot.accumulated_queries.count_lines(message) % 10 == 0:
-            await bot.reply(message, "I'm still waiting for the rest of the query. Please end it with `;`")
+            await bot.reply(
+                message,
+                "I'm still waiting for the rest of the query. Please end it with `;`",
+            )
         return ReplyIntent(None, accumulate_query)
 
     await safe_run_query(message)
@@ -113,7 +120,10 @@ async def initiator(args: re.Match, message: Message):
     query = args[1]
     bot.accumulated_queries.append(message, query)
     if not bot.accumulated_queries.is_finished:
-        await bot.reply(message, "I will be silently waiting for the rest of the query. Please end it with `;`")
+        await bot.reply(
+            message,
+            "I will be silently waiting for the rest of the query. Please end it with `;`",
+        )
         return ReplyIntent(None, accumulate_query)
     await safe_run_query(message)
 

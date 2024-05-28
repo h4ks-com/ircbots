@@ -7,8 +7,10 @@ import sys
 import time
 
 from cleverbot import Cleverbot
+from dotenv import load_dotenv
 from IrcBot.bot import IrcBot, utils
-from IrcBot.utils import debug, log
+
+load_dotenv()
 
 HOST = os.getenv("IRC_HOST")
 assert HOST, "IRC_HOST is required"
@@ -47,11 +49,14 @@ BotType = Cleverbot
 def reply(session: str, text: str) -> str:
     global sessions, BotType
     if session not in sessions:
-        sessions[session] = BotType(use_tor_fallback=True)
+        # sessions[session] = BotType(use_tor_fallback=True)
+        sessions[session] = BotType()
     return sessions[session].send(text)
 
 
-@utils.regex_cmd_with_messsage(rf".*<{NICK}> (\S+) has challenged you to a duel!.*$", False)
+@utils.regex_cmd_with_messsage(
+    rf".*<{NICK}> (\S+) has challenged you to a duel!.*$", False
+)
 def duelaccept(args, message):
     nick = message.sender_nick
     if nick == GONZOBOT:
@@ -59,7 +64,8 @@ def duelaccept(args, message):
 
 
 @utils.regex_cmd_with_messsage(
-    rf"<(\S+)> {NICK} has accepted your duel request! The duel will begin in (\d+) seconds.", False
+    rf"<(\S+)> {NICK} has accepted your duel request! The duel will begin in (\d+) seconds.",
+    False,
 )
 def duelbang(args, message):
     nick = message.sender_nick
@@ -69,7 +75,9 @@ def duelbang(args, message):
         return f".bang {args[1]}"
 
 
-@utils.regex_cmd_with_messsage(rf"(?i)^((?:.*\s)?{NICK}([\s|,|\.|\;|\?|!|:]*)(?:\s.*)?)$", False)
+@utils.regex_cmd_with_messsage(
+    rf"(?i)^((?:.*\s)?{NICK}([\s|,|\.|\;|\?|!|:]*)(?:\s.*)?)$", False
+)
 def mention(args, message):
     if message.text.strip().startswith("."):
         return

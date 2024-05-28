@@ -1,2 +1,3 @@
+python-dotenv==1.0.0
 re-ircbot==1.7.0
 cleverbot-scraper==0.2.7

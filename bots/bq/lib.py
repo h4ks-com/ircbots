@@ -14,7 +14,9 @@ MAX_RESULTS = 20
 credentials = os.getenv("SERVICE_ACCOUNT_BASE64_JSON")
 assert credentials is not None, "SERVICE_ACCOUNT_BASE64_JSON is not set"
 
-client = bigquery.Client.from_service_account_info(json.loads(b64decode(credentials).decode()))
+client = bigquery.Client.from_service_account_info(
+    json.loads(b64decode(credentials).decode())
+)
 
 
 def human_size(
@@ -42,7 +44,11 @@ def bq_process_size(query: str) -> int | None:
         job_config=job_config,
     )
     query_job.result()
-    return query_job.total_bytes_processed if query_job.total_bytes_processed is not None else None
+    return (
+        query_job.total_bytes_processed
+        if query_job.total_bytes_processed is not None
+        else None
+    )
 
 
 def bq_query(query: str) -> pd.DataFrame:
@@ -58,7 +64,9 @@ def bq_query(query: str) -> pd.DataFrame:
     if destination is None:
         return pd.DataFrame([{"error": "No destination"}])
 
-    rows = client.list_rows(destination, page_token=None, page_size=MAX_RESULTS, max_results=MAX_RESULTS)
+    rows = client.list_rows(
+        destination, page_token=None, page_size=MAX_RESULTS, max_results=MAX_RESULTS
+    )
     df = pd.DataFrame([dict(row) for row in rows])
     client.delete_table(destination)
     return df
@@ -66,7 +74,12 @@ def bq_query(query: str) -> pd.DataFrame:
 
 def format_field_type(field: bigquery.SchemaField) -> str:
     if field.mode == "RECORD":
-        return ", ".join([f"{sub_field.name}-({format_field_type(sub_field)})" for sub_field in field.fields])
+        return ", ".join(
+            [
+                f"{sub_field.name}-({format_field_type(sub_field)})"
+                for sub_field in field.fields
+            ]
+        )
     return field.field_type
 
 

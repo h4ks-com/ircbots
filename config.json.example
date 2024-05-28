@@ -1,7 +1,16 @@
 {
+  "bots/gptbot": {
+    "IRC_HOST": "irc.dot.org.es",
+    "IRC_PORT": "6667",
+    "IRC_SSL": "False",
+    "NICK": "kenough",
+    "PASSWORD": "",
+    "CHANNELS": "[\"#romanian\"]"
+  },
   "bots/bq": {
     "IRC_HOST": "irc.dot.org.es",
     "IRC_PORT": "6667",
+    "IRC_SSL": "False",
     "NICK": "_bqbot",
     "PASSWORD": "",
     "CHANNELS": "[\"#bots\"]",
@@ -10,6 +19,7 @@
   "bots/cai-bot": {
     "IRC_HOST": "irc.dot.org.es",
     "IRC_PORT": "6667",
+    "IRC_SSL": "False",
     "NICK": "kenough",
     "PASSWORD": "",
     "CHANNELS": "[\"#romanian\"]",
@@ -17,6 +27,14 @@
     "CHAT_ID": "",
     "POP3_SERVER": "",
     "EMAIL_ADDRESS": ""
+  },
+  "bots/translator": {
+    "IRC_HOST": "irc.dot.org.es",
+    "IRC_PORT": "6667",
+    "IRC_SSL": "False",
+    "NICK": "kenough",
+    "PASSWORD": "",
+    "CHANNELS": "[\"#romanian\"]"
   },
   "bots/g4firc": {
     "NICK": "_gptbot",
@@ -26,5 +44,13 @@
     "CHANNELS": "[\"#bots\", \"#romanian\"]",
     "DATABASE": "gptbot.db",
     "MAX_CHATS_PER_USER": "4"
+  },
+  "bots/ken": {
+    "IRC_HOST": "irc.dot.org.es",
+    "IRC_PORT": "6667",
+    "IRC_SSL": "False",
+    "NICK": "kenough",
+    "PASSWORD": "",
+    "CHANNELS": "[\"#romanian\"]"
   }
 }

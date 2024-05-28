@@ -42,7 +42,9 @@ def get_token_from_email():
     # Iterate over the parts of the email
     for part in msg.walk():
         if part.get_content_type() == "text/html":
-            html_content = part.get_payload(decode=True).decode(part.get_content_charset())
+            html_content = part.get_payload(decode=True).decode(
+                part.get_content_charset()
+            )
             soup = BeautifulSoup(html_content, "html.parser")
             links = soup.find_all("a")
 
@@ -79,7 +81,9 @@ class ClientWrapper:
         return self.aiocai
 
     @asynccontextmanager
-    async def new_chat(self, char_id: str) -> AsyncIterator[tuple[ChatData, BotAnswer, WSConnect]]:
+    async def new_chat(
+        self, char_id: str
+    ) -> AsyncIterator[tuple[ChatData, BotAnswer, WSConnect]]:
         me = await self.aiocai.get_me()
         async with await self.aiocai.connect() as conn:
             new, answer = await conn.new_chat(char_id, str(me.id))

@@ -3,7 +3,10 @@ import logging
 import os
 
 import requests
-from IrcBot.bot import Color, IrcBot, utils
+from dotenv import load_dotenv
+from IrcBot.bot import IrcBot, utils
+
+load_dotenv()
 
 HOST = os.getenv("IRC_HOST")
 assert HOST, "IRC_HOST is required"
@@ -36,9 +39,12 @@ def echo(args, message):
         ],
     }
     request = requests.post(
-        "https://g4f-api.fly.dev/api/completions", params=params, headers=headers, json=json_data
+        "https://g4f-api.fly.dev/api/completions",
+        params=params,
+        headers=headers,
+        json=json_data,
     ).json()
-    completion = request["completion"]
+    request["completion"]
     return request["completion"]
 
 
@@ -48,5 +54,7 @@ async def onConnect(bot: IrcBot):
 
 if __name__ == "__main__":
     utils.setLogging(logging.INFO)
-    bot = IrcBot(HOST, nick=NICK, channels=CHANNELS, password=PASSWORD, use_ssl=SSL, port=PORT)
+    bot = IrcBot(
+        HOST, nick=NICK, channels=CHANNELS, password=PASSWORD, use_ssl=SSL, port=PORT
+    )
     bot.runWithCallback(onConnect)

@@ -12,10 +12,14 @@ from characterai.types.account import Anonymous
 from characterai.types.other import QueryChar
 from dotenv import load_dotenv
 from ircbot import IrcBot, Message, utils
-from ircbot.format import format_line_breaks, irc_sanitize_nick, markdown_to_irc, truncate
-from pydantic import ValidationError
-
+from ircbot.format import (
+    format_line_breaks,
+    irc_sanitize_nick,
+    markdown_to_irc,
+    truncate,
+)
 from lib import ClientWrapper, get_token
+from pydantic import ValidationError
 
 load_dotenv()
 
@@ -72,18 +76,24 @@ utils.set_loglevel(logging.INFO)
 bot.set_prefix("+")
 
 
-async def format_response(bot: CustomBot, text: str, nick: str | None = None) -> list[str]:
+async def format_response(
+    bot: CustomBot, text: str, nick: str | None = None
+) -> list[str]:
     me = await bot.data.client.aiocai.get_me()
     if not isinstance(me, Anonymous):
         my_nick = me.username
         name = "everyone" if nick is None else nick
         text = re.sub(rf"\b{re.escape(my_nick)}\b", name, text, flags=re.IGNORECASE)
     lines = format_line_breaks(markdown_to_irc(text))
-    return [l for l in lines if l]
+    return [ln for ln in lines if ln]
 
 
-def install_conversation_hooks(mybot: CustomBot, nick: str = NICK, char: str = CHAR, chat_id: str = CHAT_ID):
-    @mybot.regex_cmd_with_messsage(rf"(?i)^((?:.*\s)?{nick}([\s|,|\.|\;|\?|!|:]*)(?:\s.*)?)$", False)
+def install_conversation_hooks(
+    mybot: CustomBot, nick: str = NICK, char: str = CHAR, chat_id: str = CHAT_ID
+):
+    @mybot.regex_cmd_with_messsage(
+        rf"(?i)^((?:.*\s)?{nick}([\s|,|\.|\;|\?|!|:]*)(?:\s.*)?)$", False
+    )
     async def mention(args: re.Match, message: Message):
         if message.sender_nick == NICK:
             return
@@ -102,7 +112,9 @@ def install_conversation_hooks(mybot: CustomBot, nick: str = NICK, char: str = C
                 return await mybot.reply(message, "-#" * 20)
         else:
             return await mybot.reply(message, f"Error: {exc or 'Unknown'}")
-        await mybot.reply(message, await format_response(mybot, answer.text, message.sender_nick))
+        await mybot.reply(
+            message, await format_response(mybot, answer.text, message.sender_nick)
+        )
 
 
 def add_character_to_channel(token: str, channel: str, nick: str, char: QueryChar):
@@ -117,11 +129,17 @@ def add_character_to_channel(token: str, channel: str, nick: str, char: QueryCha
         return new_bot
 
     async def get_char():
-        async with new_bot.data.client.new_chat(char.external_id) as (new, answer, conn):
+        async with new_bot.data.client.new_chat(char.external_id) as (
+            new,
+            answer,
+            conn,
+        ):
             text = answer.text
             await bot.sleep(0.5)
         logging.info(f"Got response for {nick}")
-        install_conversation_hooks(new_bot, nick=new_bot.nick, char=char.external_id, chat_id=new.chat_id)
+        install_conversation_hooks(
+            new_bot, nick=new_bot.nick, char=char.external_id, chat_id=new.chat_id
+        )
         new_bot.install_hooks()
         await new_bot.join(channel)
         await new_bot.send_message(await format_response(new_bot, text), channel)
@@ -130,14 +148,16 @@ def add_character_to_channel(token: str, channel: str, nick: str, char: QueryCha
         try:
             new_bot = create_bot()
             new_bot.run_with_callback(get_char)
-        except ConnectionError as e:
+        except ConnectionError:
             logging.error(f"Connection error for {nick}, trying again ...")
             time.sleep(2)
 
     logging.error(f"Connection error for {nick}, giving up.")
 
 
-def get_search_results_lines(message: Message, search_results: list[QueryChar]) -> list[str]:
+def get_search_results_lines(
+    message: Message, search_results: list[QueryChar]
+) -> list[str]:
     lines = []
     user_data = bot.data.channels[message.channel].users.get(message.sender_nick)
     if not user_data or len(search_results) == 0:
@@ -175,7 +195,9 @@ async def more(args: re.Match, message: Message):
     if not user_data:
         await bot.reply(message, "No search results available")
         return
-    search_results = bot.data.channels[message.channel].users[message.sender_nick].search_results
+    search_results = (
+        bot.data.channels[message.channel].users[message.sender_nick].search_results
+    )
     if not search_results or len(search_results) == 0:
         await bot.reply(message, "No search results available")
         return
@@ -209,10 +231,16 @@ async def add(args: re.Match, message: Message):
     char = user_data.shown_results[number - 1]
     nick = irc_sanitize_nick(char.participant__name)
     if nick in bot.data.channels[message.channel].children:
-        await bot.reply(message, f"Character '{nick}' is already in use. Delete it first.")
+        await bot.reply(
+            message, f"Character '{nick}' is already in use. Delete it first."
+        )
         return
 
-    process = Process(target=add_character_to_channel, args=(bot.data.token, message.channel, nick, char), daemon=True)
+    process = Process(
+        target=add_character_to_channel,
+        args=(bot.data.token, message.channel, nick, char),
+        daemon=True,
+    )
     process.start()
     bot.data.channels[message.channel].children[nick] = process
 
@@ -224,7 +252,9 @@ async def kill_process(process: Process):
         os.kill(process.pid, 9)
 
 
-@bot.arg_command("delete", "Remove a character from the conversation", "del <nick>", alias="remove")
+@bot.arg_command(
+    "delete", "Remove a character from the conversation", "del <nick>", alias="remove"
+)
 async def delete(args: re.Match, message: Message):
     if args[1] not in bot.data.channels[message.channel].children:
         await bot.reply(message, f"Character '{args[1]}' not found")

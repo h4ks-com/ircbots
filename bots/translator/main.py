@@ -8,8 +8,11 @@ from copy import deepcopy
 from functools import lru_cache
 from hashlib import md5
 
-from IrcBot.bot import Color, IrcBot, Message, ReplyIntent, utils
-from IrcBot.utils import debug, log
+from dotenv import load_dotenv
+from googletrans import Translator as google_translator
+from IrcBot.bot import Color, IrcBot, Message, utils
+
+load_dotenv()
 
 HOST = os.getenv("IRC_HOST")
 assert HOST, "IRC_HOST is required"
@@ -37,18 +40,18 @@ INFO_CMDS = {
         f"1. You can only have {MAX_AUTO_LANGS} auto translations active simultaneously",
         "2. Do not use this bot to spam",
     ],
-    "^@help\s+auto.*$": [
+    r"^@help\s+auto.*$": [
         "@auto [src_iso_code] [dest_iso_code] Sets the automatic translation from the source language to the target language as specified in the command.",
         "@auto show Displays the current source and target language or languages in place in the channel.",
         "@auto off [dest_iso_code] Disables automatic translation to the specified target language.",
         "@auto off Clears all rules for automatic translations in the channel.",
     ],
-    "^@help\s+babel.*$": [
+    r"^@help\s+babel.*$": [
         "@babel [dest_iso_code] You will receve translations of this chat in the specified language as a PM from me.",
         "@babel off  Disables babel mode.",
         "Notice that this mode won't last forever, you have to be active on the channel to keep babel mode active.",
     ],
-    "^@help\s+back.*$": [
+    r"^@help\s+back.*$": [
         "@back [nick] [dest_iso_code] [N] Translates the Nth last message from the specified nick to the specified language. If N is not specified will translate the last",
     ],
     "^@help.*": [
@@ -63,14 +66,13 @@ INFO_CMDS = {
     #    r"^(.*) vim ": "Do you mean the best Text editor???",
 }
 
-LANGS = [l.strip() for l in open("google_iso_lang_codes.txt").readlines()]
+LANGS = [lng.strip() for lng in open("google_iso_lang_codes.txt").readlines()]
 
 utils.setParseOrderTopBottom()
 ##################################################
 # BOT COMMANDS DEFINITIONS                       #
 ##################################################
 
-from googletrans import Translator as google_translator
 
 auto_nicks = {}
 
@@ -83,7 +85,7 @@ for r in INFO_CMDS:
 
 @lru_cache(maxsize=CACHE_SIZE)
 def trans(m, dst, src="auto", autodetect=True):
-    if type(m) != str:
+    if not isinstance(m, str):
         m = m.group(1)
 
     # Removing nicknames
@@ -94,7 +96,9 @@ def trans(m, dst, src="auto", autodetect=True):
     logging.info("Translating: " + m)
     proxy_index = None
     while proxy_index is None or proxy_index < len(PROXIES):
-        translator = google_translator(proxies={"http": PROXIES[proxy_index]} if proxy_index is not None else None)
+        translator = google_translator(
+            proxies={"http": PROXIES[proxy_index]} if proxy_index is not None else None
+        )
         try:
             detected_lang = translator.detect(m).lang
             if autodetect and detected_lang == dst:
@@ -133,7 +137,9 @@ def translate_cmd(m, message):
         return f"<{message.nick}> {lang} is not a valid language code!"
     if dst and dst not in LANGS:
         return f"<{message.nick}> {dst} is not a valid language code!"
-    return translate(text, message, lang, src=src if dst else "auto", autodetect=not dst)
+    return translate(
+        text, message, lang, src=src if dst else "auto", autodetect=not dst
+    )
 
 
 @utils.regex_cmd_with_messsage("^@auto (.*)$", ACCEPT_PRIVATE_MESSAGES)
@@ -203,6 +209,7 @@ def auto(m, message):
 
 
 back_messages = {}
+
 
 # Implement back translations
 @utils.regex_cmd_with_messsage("^@back (.*)$", ACCEPT_PRIVATE_MESSAGES)
@@ -302,7 +309,7 @@ def colorize(text):
 
 
 def babel_message(m, message, babel_nick, dst, src="auto"):
-    if type(m) != str:
+    if not isinstance(m, str):
         m = m.group(1)
     translated_msg = trans(m, dst, src)
     if not translated_msg:
@@ -329,7 +336,9 @@ async def ask(
         if resp:
             if expected_input is None or resp.get("text").strip() in expected_input:
                 break
-            await bot.send_message(repeat_question if repeat_question else question, nick)
+            await bot.send_message(
+                repeat_question if repeat_question else question, nick
+            )
         else:
             await bot.send_message(timeout_message, nick)
             break
@@ -362,9 +371,9 @@ async def process_auto(bot: IrcBot, m, message):
         babel_users[channel] = {}
 
     # reset babel counter on activity
-    if (message.channel in babel_users or message.channel == message.nick) and message.nick in babel_users[
-        message.channel
-    ]:
+    if (
+        message.channel in babel_users or message.channel == message.nick
+    ) and message.nick in babel_users[message.channel]:
         babel_users[message.channel][message.nick]["counter"] = 0
         logging.info(f"Reset babel counter for {message.nick} in {message.channel}")
 
@@ -400,7 +409,10 @@ async def process_auto(bot: IrcBot, m, message):
                 del babel_users[channel][babel_nick]
                 del babel_prefs[babel_nick]
                 continue
-            elif babel_users[channel][babel_nick]["counter"] == MAX_BABEL_MSG_COUNTER - BABEL_WARN_THRESHOLD:
+            elif (
+                babel_users[channel][babel_nick]["counter"]
+                == MAX_BABEL_MSG_COUNTER - BABEL_WARN_THRESHOLD
+            ):
                 future_translations.update(
                     {
                         executor.submit(
@@ -538,7 +550,9 @@ async def process_auto(bot: IrcBot, m, message):
         )
 
         babel_users[babel_prefs[nick]["channel"]][message.nick]["counter"] = 0
-        logging.info(f"Reset babel counter for {message.nick} in {babel_prefs[nick]['channel']}")
+        logging.info(
+            f"Reset babel counter for {message.nick} in {babel_prefs[nick]['channel']}"
+        )
 
 
 if __name__ == "__main__":

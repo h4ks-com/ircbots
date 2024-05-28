@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import re
 from collections import deque
 from functools import lru_cache
@@ -8,7 +9,7 @@ from typing import List
 import g4f
 import requests
 from cachetools import TTLCache
-from dotenv import dotenv_values
+from dotenv import load_dotenv
 from g4f import Provider, ProviderType
 from g4f.client import AsyncClient
 from g4f.stubs import ChatCompletion
@@ -16,15 +17,16 @@ from ircbot import Color, IrcBot, Message
 from ircbot.client import MAX_MESSAGE_LEN, PersistentData
 from ircbot.format import format_line_breaks, markdown_to_irc
 
-config = dotenv_values()
-NICK = config["NICK"]
-SERVER = config["SERVER"]
-CHANNELS = json.loads(config["CHANNELS"])
-PORT = int(config.get("PORT") or 6667)
-PASSWORD = config["PASSWORD"] if "PASSWORD" in config else None
-SSL = config["SSL"] == "true"
-DATABASE = config.get("DATABASE") or "database.db"
-MAX_CHATS_PER_USER = int(config.get("MAX_CHATS_PER_USER") or 10)
+load_dotenv()
+
+NICK = os["NICK"]
+SERVER = os["SERVER"]
+CHANNELS = json.loads(os["CHANNELS"])
+PORT = int(os.get("PORT") or 6667)
+PASSWORD = os["PASSWORD"] if "PASSWORD" in os else None
+SSL = os["SSL"] == "true"
+DATABASE = os.get("DATABASE") or "database.db"
+MAX_CHATS_PER_USER = int(os.get("MAX_CHATS_PER_USER") or 10)
 
 PROVIDER_BLACKLIST = ["bing"]
 
@@ -101,10 +103,13 @@ providers = list(Provider.ProviderUtils.convert.values())
 providers = [
     provider
     for provider in providers
-    if not provider.needs_auth and get_provider_name(provider).lower() not in PROVIDER_BLACKLIST
+    if not provider.needs_auth
+    and get_provider_name(provider).lower() not in PROVIDER_BLACKLIST
 ]
 
-command_to_provider = {get_provider_name(provider).lower(): provider for provider in providers}
+command_to_provider = {
+    get_provider_name(provider).lower(): provider for provider in providers
+}
 
 all_models = [
     getattr(g4f.models, model_name)
@@ -137,14 +142,23 @@ for provider in providers:
 
 
 chats = PersistentData(DATABASE, "chats", ["nick", "chat", "headline"])
-message_history = PersistentData(DATABASE, "messages", ["nick", "role", "chat", "message"])
+message_history = PersistentData(
+    DATABASE, "messages", ["nick", "role", "chat", "message"]
+)
 
 assert SERVER, "SERVER is not set"
 assert NICK, "NICK is not set"
 assert CHANNELS, "CHANNELS is not set"
 assert PORT, "PORT is not set"
 bot = (
-    IrcBot(SERVER, nick=NICK, port=PORT, use_ssl=SSL, password=PASSWORD or "", tables=[chats, message_history])
+    IrcBot(
+        SERVER,
+        nick=NICK,
+        port=PORT,
+        use_ssl=SSL,
+        password=PASSWORD or "",
+        tables=[chats, message_history],
+    )
     .set_prefix("!")
     .set_help_header(
         "GPT bot! Generate text using gtp4free. Context is saved for each user individually and between different providers. Check my DM!"
@@ -162,7 +176,11 @@ def get_user_context(nick: str) -> deque[dict]:
 
 def list_chats(nick: str) -> list[str]:
     """List all chats."""
-    return [f'{nick}: {chat["chat"]} -> {chat["headline"]}' for chat in chats.data if chat["nick"] == nick]
+    return [
+        f'{nick}: {chat["chat"]} -> {chat["headline"]}'
+        for chat in chats.data
+        if chat["nick"] == nick
+    ]
 
 
 def load_chat_history(nick: str, chat_id: int):
@@ -213,9 +231,23 @@ def save_chat_history(nick: str):
     cache = get_user_context(nick)
 
     max_content_len = 64
-    chats.push({"nick": nick, "chat": chat_id, "headline": cache[-1]["content"][:max_content_len]})
+    chats.push(
+        {
+            "nick": nick,
+            "chat": chat_id,
+            "headline": cache[-1]["content"][:max_content_len],
+        }
+    )
     message_history.push(
-        [{"nick": nick, "role": message["role"], "chat": chat_id, "message": message["content"]} for message in cache]
+        [
+            {
+                "nick": nick,
+                "role": message["role"],
+                "chat": chat_id,
+                "message": message["content"],
+            }
+            for message in cache
+        ]
     )
 
 
@@ -261,7 +293,11 @@ def format_provider(provider: Provider.BaseProvider) -> str:
         url = ""
     else:
         url = provider.url
-    working = Color("Yes", fg=Color.green).str if provider.working else Color("No", fg=Color.red).str
+    working = (
+        Color("Yes", fg=Color.green).str
+        if provider.working
+        else Color("No", fg=Color.red).str
+    )
     return f"{name} {model=} {url=} -- available: {working}"
 
 
@@ -269,7 +305,7 @@ def list_providers(_, message: Message) -> list[Message] | str:
     """List all providers."""
     text = message.text
     m = re.match(r"^!(\S+) (.*)$", text)
-    firstm = Message(channel=message.channel, is_private=False, message="Check my DM!")
+    Message(channel=message.channel, is_private=False, message="Check my DM!")
     if m is None or len(m.groups()) < 2:
         return [
             Message(channel=message.nick, message=m, is_private=True)
@@ -278,7 +314,8 @@ def list_providers(_, message: Message) -> list[Message] | str:
     arg = m.group(2)
     if arg.lower() in ["all", "-a", "a"]:
         return [
-            Message(channel=message.nick, message=m, is_private=True) for m in [format_provider(p) for p in providers]
+            Message(channel=message.nick, message=m, is_private=True)
+            for m in [format_provider(p) for p in providers]
         ]
     return f"{message.nick}: Unknown argument {arg}. Valid arguments are: all, -a, a"
 
@@ -330,7 +367,9 @@ async def clear_context(match: re.Match, message: Message):
     return f"{message.nick}: Context cleared."
 
 
-async def test_provider(provider: ProviderType, queue: asyncio.Queue, semaphore: asyncio.Semaphore) -> bool:
+async def test_provider(
+    provider: ProviderType, queue: asyncio.Queue, semaphore: asyncio.Semaphore
+) -> bool:
     """Sends hi to a provider and check if there is response or error."""
     async with semaphore:
         try:
@@ -374,7 +413,9 @@ async def selftest(match: re.Match, message: Message):
 
         async def producer():
             semaphore = asyncio.Semaphore(8)
-            await asyncio.gather(*[test_provider(provider, queue, semaphore) for provider in providers])
+            await asyncio.gather(
+                *[test_provider(provider, queue, semaphore) for provider in providers]
+            )
             await queue.join()
             await queue.put((None, None))
 
@@ -413,7 +454,12 @@ if __name__ == "__main__":
         elif command == "paste":
 
             async def _func_paste(bot, match, message):
-                text = "\n".join([f'{m["role"]}: {m["content"]}' for m in get_user_context(message.nick)])
+                text = "\n".join(
+                    [
+                        f'{m["role"]}: {m["content"]}'
+                        for m in get_user_context(message.nick)
+                    ]
+                )
                 return pastebin(text)
 
             func = _func_paste
@@ -466,7 +512,9 @@ if __name__ == "__main__":
                 async def _func(bot, match, message):
                     if provider is None:
                         return f"{message.nick}: No working provider found for {model=}"
-                    return await parse_command(bot, match, message, model=model, provider=provider)
+                    return await parse_command(
+                        bot, match, message, model=model, provider=provider
+                    )
 
                 return _func
 
