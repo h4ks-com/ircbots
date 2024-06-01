@@ -40,7 +40,8 @@ bot = IrcBot(
 
 prompts = {
     "initial_prompt": "Start a conversation with a user trying to learn a new language so he can learn it better, with a random topic, and write completely and and only in that language FOREVER. The language he is learning corresponds to the ISO 369-1 code ",
-    "correction_prompt": "Take the following message which is being used in a conversation with someone and reply with a very well written and explained syntax and meaning correction in the language written entirely in the language that corresponds to the ISO 369-1 code "
+    "initial_prompt_without_first_message": "Start a conversation with a user trying to learn a new language so he can learn it better and write completely and and only in that language FOREVER. The language he is learning corresponds to the ISO 369-1 code",
+    "correction_prompt": "Take the following message which is being used in a conversation with someone and reply with a very well written and explained syntax and meaning correction in the language written entirely and 100% with no other words that are NOT in the language that corresponds to the ISO 369-1 code "
 }
 
 def user_exists(user: str) -> bool:
@@ -72,10 +73,16 @@ def confirmDialog(msg):
 
 @bot.regex_cmd_with_message(f"{NICK}: ")
 def sendAndCorrectMessage(_, msg):
-    reply = instances[msg.sender_nick].send_message(msg.text)
-    corrected_message = standalone_GPT.send_message(prompts["correction_prompt"] + get_user_language(msg.sender_nick) + " : \"" + msg.text + "\"")["completion"]
+    if not user_exists(msg.sender_nick):
+        return "Please register with \'Register!\'"
+    formatted_msg = msg.text.replace(f"{NICK}: ", "") 
+    if len(instances[msg.sender_nick].context) == 0:
+        reply = instances[msg.sender_nick].send_message(prompts["initial_prompt_without_first_message"] + get_user_language(msg.sender_nick) + " : " + formatted_msg)["completion"]
+    else:
+        reply = instances[msg.sender_nick].send_message(formatted_msg)["completion"]
+    corrected_message = standalone_GPT.send_message(prompts["correction_prompt"] + get_user_language(msg.sender_nick) + " : \"" + formatted_msg + "\"")["completion"]
     print(corrected_message)
-    return [format_line_breaks(markdown_to_irc(corrected_message)), format_line_breaks(markdown_to_irc(reply))]
+    return ["Correction", format_line_breaks(markdown_to_irc(corrected_message)), "Reply", format_line_breaks(markdown_to_irc(reply))]
 
 async def talk_to_user(user: str):
     global instances
