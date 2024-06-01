@@ -1,2 +1,4 @@
+requests==2.31.0
+python-dotenv
 re-ircbot==2.0.15-dev
 python-iso639
