@@ -35,6 +35,7 @@ bot = IrcBot(
     NICK,
     CHANNELS,
     PASSWORD,
+    use_ssl=True
 )
 
 prompts = {
