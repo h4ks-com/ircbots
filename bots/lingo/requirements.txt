@@ -1,0 +1,2 @@
+re-ircbot==2.0.15-dev
+python-iso639
