@@ -68,7 +68,7 @@ def confirmDialog(msg):
     if msg.text == msg.sender_nick:
         cur.execute("DELETE FROM user where name=(?)", (msg.sender_nick,))
         con.commit()
-        return "Donzo bozo"
+        return "Registration completed."
 
 
 @bot.regex_cmd_with_message(f"{NICK}: ")
@@ -87,7 +87,6 @@ def sendAndCorrectMessage(_, msg):
 async def talk_to_user(user: str):
     global instances
     if len(instances[user].context) == 0:
-        print("its here too")
         instances[user].send_message(prompts["initial_prompt"] + get_user_language(user))
     random_channel = random.choice([random.choice(CHANNELS), user])
     reply = instances[user].context[-1]["content"]
@@ -98,7 +97,7 @@ async def talk_to_user(user: str):
 @bot.regex_cmd_with_message("Register!", True)
 async def register(m, message):
     if user_exists(message.sender_nick):
-        return "Already registered lol"
+        return "Already registered."
     return ReplyIntent(Message(channel=message.sender_nick, sender_nick=message.sender_nick, message = "Please define the language you wish to learn in ISO 369-1 format. Example: \"de\""), registerLanguage)
 
 @bot.regex_cmd_with_message("Unregister!", True)
