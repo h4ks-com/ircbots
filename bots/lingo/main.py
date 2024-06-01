@@ -39,7 +39,7 @@ bot = IrcBot(
 )
 
 prompts = {
-    "initial_prompt": "Start a conversation with a user trying to learn a new language so he can learn it better, with a random topic, and write completely and and only in that language. The language he is learning corresponds to the ISO 369-1 code ",
+    "initial_prompt": "Start a conversation with a user trying to learn a new language so he can learn it better, with a random topic, and write completely and and only in that language FOREVER. The language he is learning corresponds to the ISO 369-1 code ",
     "correction_prompt": "Take the following message which is being used in a conversation with someone and reply with a very well written and explained syntax and meaning correction in the language written entirely in the language that corresponds to the ISO 369-1 code "
 }
 
@@ -112,9 +112,9 @@ async def parse(m, message):
 
 async def on_connect():
     while True:
-        await asyncio.sleep(90)
+        await asyncio.sleep(300)
         for user in spam:
-            if spam[user] <= random.randint(1, 100):
+            if spam[user] >= random.randint(1, 100):
                 await talk_to_user(user)
                 break
         for user in spam:
