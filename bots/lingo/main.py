@@ -1,8 +1,10 @@
 from typing import Dict
-from ircbot import IrcBot, Message, ReplyIntent, TempData, message
+from ircbot import IrcBot, Message, ReplyIntent, TempData, message, utils
 from ircbot.format import format_line_breaks, markdown_to_irc
 
 import iso639
+from requests.models import ReadTimeoutError
+from urllib3.response import util
 import gpt
 import json
 import random
@@ -22,7 +24,7 @@ CHANNELS = json.loads(os.getenv("CHANNELS") or "[]")
 import sqlite3
 con = sqlite3.connect("user.db")
 cur = con.cursor()
-cur.execute("CREATE TABLE IF NOT EXISTS user(name, language)")
+cur.execute("CREATE TABLE IF NOT EXISTS user(name, language, spam)")
 
 
 standalone_GPT = gpt.GPT(contextualize = False)
@@ -49,10 +51,28 @@ def user_exists(user: str) -> bool:
         return True
     else:
         return False
+
 def get_user_language(user: str) -> str:
     res = cur.execute("SELECT language from user WHERE name=(?)", (user,))
     return res.fetchone()[0]
 
+def get_user_spam(user: str) -> int:
+    res = cur.execute("SELECT spam from user WHERE name=(?)", (user,))
+    return res.fetchone()[0]
+
+def registerSpam(msg):
+    try:
+        if int(msg.text) in range(-1, 101):
+            spam[msg.sender_nick] = int(msg.text)
+            cur.execute(f"UPDATE user SET spam = ? WHERE name=?",(int(msg.text),msg.sender_nick))
+            con.commit()
+            return "Registration complete."
+        else:
+            print("this one")
+            return ReplyIntent("Input given was not between 1 and 100. Please try again.", registerSpam)
+    except:
+        print("this two")
+        return ReplyIntent("Input given was not between 1 and 100. Please try again.", registerSpam)
 
 def registerLanguage(msg):
     try:
@@ -60,15 +80,16 @@ def registerLanguage(msg):
     except:
          return ReplyIntent("Invalid format. Please use ISO 369-1 format. Example: \"de\"", registerLanguage)
     user = (msg.sender_nick, msg.text)
-    cur.execute("INSERT INTO user (name, language) VALUES (?,?)", user)
+    cur.execute("INSERT INTO user (name, language, spam) VALUES (?,?,100)", user)
     con.commit()
-    return "ight done"
+    return ReplyIntent("Please add initial spam probability amount for the bot (number between 0 and 100).", registerSpam)
+
 
 def confirmDialog(msg):
     if msg.text == msg.sender_nick:
         cur.execute("DELETE FROM user where name=(?)", (msg.sender_nick,))
         con.commit()
-        return "Registration completed."
+        return "Registration deleted."
 
 
 @bot.regex_cmd_with_message(f"{NICK}: ")
@@ -91,40 +112,53 @@ async def talk_to_user(user: str):
     random_channel = random.choice([random.choice(CHANNELS), user])
     reply = instances[user].context[-1]["content"]
     await bot.send_message(reply, random_channel)
-    # return ReplyIntent(Message(channel=random_channel, sender_nick=user, message=reply), sendAndCorrectMessage)
 
 
 @bot.regex_cmd_with_message("Register!", True)
-async def register(m, message):
+async def register(_, message):
     if user_exists(message.sender_nick):
         return "Already registered."
     return ReplyIntent(Message(channel=message.sender_nick, sender_nick=message.sender_nick, message = "Please define the language you wish to learn in ISO 369-1 format. Example: \"de\""), registerLanguage)
 
 @bot.regex_cmd_with_message("Unregister!", True)
-async def unregister(m, message):
+async def unregister(_, message):
     return ReplyIntent(Message(channel=message.sender_nick, sender_nick=message.sender_nick, message = "Are you sure? Reply with your username to confirm."), confirmDialog)
 
+@bot.regex_cmd_with_message("^Change spam to", True)
+async def change_spam(args, message):
+    if not user_exists(message.sender_nick):
+        return "Not registered."
+    new_spam = message.text.split()[3]
+    print(new_spam)
+    try:
+        if int(new_spam) in range(-1, 101):
+            spam[message.sender_nick] = int(new_spam)
+            cur.execute(f"UPDATE user SET spam = ? WHERE name=?",(int(new_spam),message.sender_nick))
+            con.commit()
+            return "Spam modified."
+        else:
+            return "Invalid spam number (not between 1 and 100)."
+    except:
+        return "Invalid input not a number."
+
+
 @bot.regex_cmd_with_message("^(.*)$")
-async def parse(m, message):
+async def parse(_, message):
     global instances
     nick = message.sender_nick
     if user_exists(nick):
         if not instances.get(nick):
             instances[nick] = gpt.GPT()
-        if spam.get(nick):
-            spam[nick] += 1
-        else:
-            spam[nick] = 0
+        if not spam.get(nick):
+            spam[nick] = get_user_spam(nick)
 
 async def on_connect():
     while True:
-        await asyncio.sleep(300)
+        await asyncio.sleep(180)
         for user in spam:
             if spam[user] >= random.randint(1, 100):
                 await talk_to_user(user)
                 break
-        for user in spam:
-            spam[user] = 0
 
 if __name__ == "__main__":
     bot.run(on_connect)
