@@ -3,4 +3,4 @@ g4f[webdriver]==0.3.1.9
 re-ircbot==2.0.12-dev
 requests==2.31.0
 pygments==2.18.0
-curl_cffi
+curl_cffi==0.6.4

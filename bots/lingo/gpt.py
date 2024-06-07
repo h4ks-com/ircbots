@@ -1,41 +1,28 @@
-from typing import Dict, List
+from typing import List
+
 import requests
-import json
-headers = {
-    "accept": "application/json",
-    "Content-Type": "application/json"
-}
+
+headers = {"accept": "application/json", "Content-Type": "application/json"}
 
 
-params = {
-    "provider": "DuckDuckGo"
-}
+params = {"provider": "DuckDuckGo"}
 
 message_template = {
-                "role": "",
-                "content": "",
-                }
+    "role": "",
+    "content": "",
+}
 
 
 class GPT:
-
-    def __init__(self, contextualize = True) -> None:
+    def __init__(self, contextualize=True) -> None:
         self.context: List = []
         self.contextualize = contextualize
-    
-    
+
     def completion2message(self, completion: dict) -> dict:
-        return {
-        "role": "assistant",
-        "content": completion['completion']
-            }
+        return {"role": "assistant", "content": completion["completion"]}
 
     def send_message(self, message: str):
-        self.json_data = {
-        "messages": [
-            
-        ]
-    }
+        self.json_data = {"messages": []}
         self.user_message = message_template
         self.user_message["role"] = "user"
         self.user_message["content"] = message
@@ -43,12 +30,17 @@ class GPT:
             self.json_data["messages"].extend(self.context)
         self.json_data["messages"].append(self.user_message)
         self.request = requests.post(
-        "https://g4f.cloud.mattf.one/api/completions", params=params, headers=headers, json=self.json_data)
+            "https://g4f.cloud.mattf.one/api/completions",
+            params=params,
+            headers=headers,
+            json=self.json_data,
+        )
         self.completion = self.request.json()
         if self.contextualize:
             self.response = self.completion2message(self.completion)
             self.context.append(self.response)
         return self.completion
+
 
 if __name__ == "__main__":
     gpt = GPT()
