@@ -1,3 +1,4 @@
+import re
 from typing import List
 
 import requests
@@ -35,15 +36,17 @@ class GPT:
             headers=headers,
             json=self.json_data,
         )
-        self.completion = self.request.json()
+
+        completion = self.request.json()
+        completion["completion"] = re.sub(r"^\$.+\$", "", completion["completion"])
         if self.contextualize:
-            self.response = self.completion2message(self.completion)
+            self.response = self.completion2message(completion)
             self.context.append(self.response)
-        return self.completion
+
+        return completion
 
 
 if __name__ == "__main__":
     gpt = GPT()
     while True:
-        a = input("send>")
-        print(gpt.send_message(a))
+        print(f'bot: {gpt.send_message(input("you: "))["completion"]}')

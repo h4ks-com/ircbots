@@ -134,11 +134,10 @@ def sendAndCorrectMessage(_, msg):
         + formatted_msg
         + '"'
     )["completion"]
-    print(corrected_message)
     return [
-        "Correction",
+        "-------- Correction --------",
         format_line_breaks(markdown_to_irc(corrected_message)),
-        "Reply",
+        "-------- Response ----------",
         format_line_breaks(markdown_to_irc(reply)),
     ]
 
