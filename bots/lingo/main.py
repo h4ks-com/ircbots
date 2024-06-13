@@ -46,9 +46,9 @@ bot = IrcBot(
 )
 
 prompts = {
-    "initial_prompt": "Start a conversation with a user trying to learn a new language so he can learn it better, with a random topic, and write completely and and only in that language FOREVER. The language he is learning corresponds to the ISO 369-1 code ",
-    "initial_prompt_without_first_message": "Start a conversation with a user trying to learn a new language so he can learn it better and write completely and and only in that language FOREVER. The language he is learning corresponds to the ISO 369-1 code",
-    "correction_prompt": "Take the following message which is being used in a conversation with someone and reply with a very well written and explained syntax and meaning correction in the language written entirely and 100% with no other words that are NOT in the language that corresponds to the ISO 369-1 code ",
+    "correction": 'Briefly give me the correction, or just say "Perfect!" if it looks fine, the spelling and grammar of the following sentence in {language}: {message}',
+    "answer": "Briefly respond in {language}: {message}",
+    "continue": "Come up with a question or a topic to help me learn {language}. Don't use english. Say anything you want.",
 }
 
 
@@ -61,7 +61,8 @@ def user_exists(user: str) -> bool:
 
 def get_user_language(user: str) -> str:
     res = cur.execute("SELECT language from user WHERE name=(?)", (user,))
-    return res.fetchone()[0]
+    isocode = res.fetchone()[0]
+    return iso639.Language.from_part1(isocode).name
 
 
 def get_user_spam(user: str) -> int:
@@ -69,7 +70,7 @@ def get_user_spam(user: str) -> int:
     return res.fetchone()[0]
 
 
-def registerSpam(msg: Message):
+def register_spam_level(msg: Message):
     if msg.text.isdigit():
         if int(msg.text) in range(-1, 101):
             spam[msg.sender_nick] = int(msg.text)
@@ -81,32 +82,34 @@ def registerSpam(msg: Message):
             return "Registration complete."
         else:
             return ReplyIntent(
-                "Input given was not between 1 and 100. Please try again.", registerSpam
+                "Input given was not between 1 and 100. Please try again.",
+                register_spam_level,
             )
     else:
         return ReplyIntent(
-            "Inpu must be a number between 1 and 100. Please try again.", registerSpam
+            "Inpu must be a number between 1 and 100. Please try again.",
+            register_spam_level,
         )
 
 
-def registerLanguage(msg):
+def register_language(msg):
     try:
         iso639.Language.from_part1(msg.text)
     except LanguageNotFoundError:
         return ReplyIntent(
             'Invalid format. Please use ISO 369-1 format. Example: "de"',
-            registerLanguage,
+            register_language,
         )
     user = (msg.sender_nick, msg.text)
     cur.execute("INSERT INTO user (name, language, spam) VALUES (?,?,100)", user)
     con.commit()
     return ReplyIntent(
         "Please add initial spam probability amount for the bot (number between 0 and 100).",
-        registerSpam,
+        register_spam_level,
     )
 
 
-def confirmDialog(msg):
+def confirm_dialog(msg):
     if msg.text == msg.sender_nick:
         cur.execute("DELETE FROM user where name=(?)", (msg.sender_nick,))
         con.commit()
@@ -114,25 +117,22 @@ def confirmDialog(msg):
 
 
 @bot.regex_cmd_with_message(f"{NICK}: ")
-def sendAndCorrectMessage(_, msg):
+def send_and_correct(_, msg):
     if not user_exists(msg.sender_nick):
         return "Please register with 'Register!'"
+
     formatted_msg = msg.text.replace(f"{NICK}: ", "")
-    if len(instances[msg.sender_nick].context) == 0:
-        reply = instances[msg.sender_nick].send_message(
-            prompts["initial_prompt_without_first_message"]
-            + get_user_language(msg.sender_nick)
-            + " : "
-            + formatted_msg
-        )["completion"]
-    else:
-        reply = instances[msg.sender_nick].send_message(formatted_msg)["completion"]
+    reply = instances[msg.sender_nick].send_message(
+        prompts["answer"].format(
+            language=get_user_language(msg.sender_nick),
+            message=formatted_msg,
+        )
+    )["completion"]
+
     corrected_message = standalone_GPT.send_message(
-        prompts["correction_prompt"]
-        + get_user_language(msg.sender_nick)
-        + ' : "'
-        + formatted_msg
-        + '"'
+        prompts["correction"].format(
+            language=get_user_language(msg.sender_nick), message=formatted_msg
+        )
     )["completion"]
     return [
         "-------- Correction --------",
@@ -144,12 +144,13 @@ def sendAndCorrectMessage(_, msg):
 
 async def talk_to_user(user: str):
     global instances
-    if len(instances[user].context) == 0:
-        instances[user].send_message(
-            prompts["initial_prompt"] + get_user_language(user)
-        )
     random_channel = random.choice([random.choice(CHANNELS), user])
-    reply = instances[user].context[-1]["content"]
+    reply = instances[user].send_message(
+        prompts["continue"].format(
+            language=get_user_language(user),
+        )
+    )["completion"]
+    reply = format_line_breaks(markdown_to_irc(reply))
     await bot.send_message(reply, random_channel)
 
 
@@ -163,7 +164,7 @@ async def register(_, message):
             sender_nick=message.sender_nick,
             message='Please define the language you wish to learn in ISO 369-1 format. Example: "de"',
         ),
-        registerLanguage,
+        register_language,
     )
 
 
@@ -175,8 +176,15 @@ async def unregister(_, message):
             sender_nick=message.sender_nick,
             message="Are you sure? Reply with your username to confirm.",
         ),
-        confirmDialog,
+        confirm_dialog,
     )
+
+
+@bot.regex_cmd_with_message("^Talk to me", True)
+async def talk_to_me(_, message):
+    if not user_exists(message.sender_nick):
+        return "Not registered."
+    await talk_to_user(message.sender_nick)
 
 
 @bot.regex_cmd_with_message("^Change spam to", True)
@@ -194,7 +202,7 @@ async def change_spam(args, message):
             con.commit()
             return "Spam modified."
         else:
-            return "Invalid spam number (not between 1 and 100)."
+            return "Invalid spam number (not between 0 and 100)."
     else:
         return "Invalid input not a number."
 
