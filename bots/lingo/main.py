@@ -16,6 +16,8 @@ load_dotenv()
 
 LOGFILE = None
 HOST = os.getenv("IRC_HOST")
+assert HOST, "IRC_HOST environment variable is required"
+
 PORT = int(os.getenv("IRC_PORT") or 6697)
 SSL = os.getenv("IRC_SSL") == "true"
 NICK = os.getenv("NICK") or "lingo"
