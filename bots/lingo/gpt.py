@@ -5,7 +5,7 @@ import requests
 headers = {"accept": "application/json", "Content-Type": "application/json"}
 
 
-params = {"provider": "DuckDuckGo"}
+params = {"provider": "Blackbox"}
 
 message_template = {
     "role": "",
