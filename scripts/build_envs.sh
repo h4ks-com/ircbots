@@ -18,9 +18,9 @@ for bot in bots/*; do
 		source "$bot_venv_dir/bin/activate"
 
 		if [ "$is_dev" = true ] && [ -f requirements-dev.txt ]; then
-			pip install --no-cache-dir install -r requirements-dev.txt
+			pip install --no-cache-dir -r requirements-dev.txt
 		fi
-		pip install --no-cache-dir install -r requirements.txt
+		pip install --no-cache-dir -r requirements.txt
 
 		deactivate
 		popd
