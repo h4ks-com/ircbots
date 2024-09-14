@@ -5,8 +5,9 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 from google.cloud.exceptions import ClientError
-from ircbot import IrcBot, Message, ReplyIntent
+from ircbot import IrcBot, ReplyIntent
 from ircbot.format import format_line_breaks, markdown_to_irc
+from ircbot.message import Message
 from lib import MAX_PROCESSING_SIZE, bq_process_size, bq_query, bq_schema, human_size
 
 load_dotenv()
@@ -115,7 +116,7 @@ async def accumulate_query(message: Message):
     return ""
 
 
-@bot.regex_cmd_with_messsage(rf"^\s*{re.escape(NICK)}:? (.+)$")
+@bot.regex_cmd_with_message(rf"^\s*{re.escape(NICK)}:? (.+)$")
 async def initiator(args: re.Match, message: Message):
     query = args[1]
     bot.accumulated_queries.append(message, query)
@@ -128,7 +129,7 @@ async def initiator(args: re.Match, message: Message):
     await safe_run_query(message)
 
 
-@bot.regex_cmd_with_messsage(rf"^\s*{re.escape(NICK)}:? `((?:[^`]|\S)+)`$")
+@bot.regex_cmd_with_message(rf"^\s*{re.escape(NICK)}:? `((?:[^`]|\S)+)`$")
 async def bq_get_schema(args: re.Match, message: Message):
     table = args[1]
     try:
@@ -141,7 +142,7 @@ async def bq_get_schema(args: re.Match, message: Message):
     await bot.reply(message, schema.to_markdown(index=False) or "?")
 
 
-@bot.regex_cmd_with_messsage(rf"^\s*{re.escape(NICK)}:? help$")
+@bot.regex_cmd_with_message(rf"^\s*{re.escape(NICK)}:? help$")
 async def help_message(args: re.Match, message: Message):
     body = f"""
 Hi! I'm a bot that can run BigQuery queries. Here are some commands you can use:

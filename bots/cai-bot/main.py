@@ -11,13 +11,14 @@ import websockets
 from characterai.types.account import Anonymous
 from characterai.types.other import QueryChar
 from dotenv import load_dotenv
-from ircbot import IrcBot, Message, utils
+from ircbot import IrcBot, utils
 from ircbot.format import (
     format_line_breaks,
     irc_sanitize_nick,
     markdown_to_irc,
     truncate,
 )
+from ircbot.message import Message
 from lib import ClientWrapper, get_token
 from pydantic import ValidationError
 
@@ -91,7 +92,7 @@ async def format_response(
 def install_conversation_hooks(
     mybot: CustomBot, nick: str = NICK, char: str = CHAR, chat_id: str = CHAT_ID
 ):
-    @mybot.regex_cmd_with_messsage(
+    @mybot.regex_cmd_with_message(
         rf"(?i)^((?:.*\s)?{nick}([\s|,|\.|\;|\?|!|:]*)(?:\s.*)?)$", False
     )
     async def mention(args: re.Match, message: Message):
@@ -122,7 +123,7 @@ def add_character_to_channel(token: str, channel: str, nick: str, char: QueryCha
         new_bot = CustomBot(HOST, PORT, nick, channel, use_ssl=SSL)
         new_bot.data = BotData(channels={}, token=token, client=ClientWrapper(token))
 
-        @new_bot.regex_cmd_with_messsage("^help .*")
+        @new_bot.regex_cmd_with_message("^help .*")
         def no_help(args: re.Match, message: Message):
             pass
 

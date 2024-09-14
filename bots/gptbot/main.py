@@ -21,10 +21,6 @@ headers = {
     "Content-Type": "application/json",
 }
 
-params = {
-    "model": "gpt-4-turbo",
-}
-
 # TODO: make the command itself the model or provider argument like the old gpt bot did
 
 
@@ -39,8 +35,7 @@ def echo(args, message):
         ],
     }
     request = requests.post(
-        "https://g4f-api.fly.dev/api/completions",
-        params=params,
+        "https://g4f.cloud.mattf.one/api/completions",
         headers=headers,
         json=json_data,
     ).json()

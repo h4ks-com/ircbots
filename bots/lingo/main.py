@@ -8,8 +8,9 @@ from typing import Dict
 import gpt
 import iso639
 from dotenv import load_dotenv
-from ircbot import IrcBot, Message, ReplyIntent
+from ircbot import IrcBot, ReplyIntent
 from ircbot.format import format_line_breaks, markdown_to_irc
+from ircbot.message import Message
 from iso639 import LanguageNotFoundError
 
 load_dotenv()
