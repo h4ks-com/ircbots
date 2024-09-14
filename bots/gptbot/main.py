@@ -93,5 +93,5 @@ async def on_connect():
     await bot.join("#bots")
 
 
-if __name__ == "__main__":
-    bot.run_with_callback(on_connect)
+# if __name__ == "__main__":
+#     bot.run_with_callback(on_connect)
