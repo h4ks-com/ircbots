@@ -75,15 +75,18 @@ def ai_response(args, message: Message):
     json_data = {
         "messages": bot.get_history(message.channel),
     }
-    request = requests.post(
+    response = requests.post(
         "https://g4f.cloud.mattf.one/api/completions",
         headers=headers,
         json=json_data,
-    ).json()
+    )
+    if not response.ok:
+        return response.text
+    response.raise_for_status()
 
-    response = request["completion"]
-    bot.add_to_history(BotMessage(response, message.channel))
-    return f"{message.sender_nick}: {response}"
+    completion = response.json()["completion"]
+    bot.add_to_history(BotMessage(completion, message.channel))
+    return f"{message.sender_nick}: {completion}"
 
 
 async def on_connect():
