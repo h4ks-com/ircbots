@@ -1,10 +1,12 @@
 import json
-import logging
 import os
+from collections import deque
+from typing import Deque, Literal, TypedDict
 
 import requests
 from dotenv import load_dotenv
-from IrcBot.bot import IrcBot, utils
+from ircbot import IrcBot
+from ircbot.message import Message
 
 load_dotenv()
 
@@ -15,41 +17,78 @@ PORT = int(os.getenv("IRC_PORT") or 6667)
 NICK = os.getenv("NICK") or "_bqbot"
 PASSWORD = os.getenv("PASSWORD") or ""
 CHANNELS = json.loads(os.getenv("CHANNELS") or "[]")
-
-headers = {
-    "accept": "application/json",
-    "Content-Type": "application/json",
-}
-
-# TODO: make the command itself the model or provider argument like the old gpt bot did
+MAX_HISTORY = int(os.getenv("MAX_HISTORY") or 100)
 
 
-@utils.arg_command("echo")
-def echo(args, message):
+class ApiMessage(TypedDict):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class BotMessage(Message):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.role = "assistant"
+
+
+class MyBot(IrcBot):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.history: dict[str, Deque[Message]] = {}
+
+    def add_to_history(self, message: Message):
+        channel = message.channel
+        if channel not in self.history:
+            self.history[channel] = deque(maxlen=MAX_HISTORY)
+        self.history[channel].append(message)
+
+    @staticmethod
+    def _fmt_message(message: Message) -> ApiMessage:
+        role = "assistant" if isinstance(message, BotMessage) else "user"
+        return {"role": role, "content": f"{message.sender_nick}: {message.text}"}
+
+    def get_history(self, channel: str) -> list[ApiMessage]:
+        return [MyBot._fmt_message(msg) for msg in self.history.get(channel, [])]
+
+
+bot = MyBot(
+    HOST,
+    nick=NICK,
+    channels=CHANNELS,
+    password=PASSWORD,
+    use_ssl=SSL,
+    port=PORT,
+)
+
+
+@bot.regex_cmd_with_message(".*")
+def add_to_history(args, message: Message):
+    bot.add_to_history(message)
+
+
+@bot.regex_cmd_with_message(rf"^\s*{NICK}:? ")
+def ai_response(args, message: Message):
+    headers = {
+        "accept": "application/json",
+        "Content-Type": "application/json",
+    }
     json_data = {
-        "messages": [
-            {
-                "role": "user",
-                "content": " ".join(utils.m2list(args)),
-            },
-        ],
+        "messages": bot.get_history(message.channel),
     }
     request = requests.post(
         "https://g4f.cloud.mattf.one/api/completions",
         headers=headers,
         json=json_data,
     ).json()
-    request["completion"]
-    return request["completion"]
+
+    response = request["completion"]
+    bot.add_to_history(BotMessage(response, message.channel))
+    return f"{message.sender_nick}: {response}"
 
 
-async def onConnect(bot: IrcBot):
+async def on_connect():
     await bot.join("#bots")
 
 
 if __name__ == "__main__":
-    utils.setLogging(logging.INFO)
-    bot = IrcBot(
-        HOST, nick=NICK, channels=CHANNELS, password=PASSWORD, use_ssl=SSL, port=PORT
-    )
-    bot.runWithCallback(onConnect)
+    bot.run_with_callback(on_connect)
