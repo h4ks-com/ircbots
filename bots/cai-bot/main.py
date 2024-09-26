@@ -22,6 +22,16 @@ from ircbot.message import Message
 from lib import ClientWrapper, get_token
 from pydantic import ValidationError
 
+
+def remove_surrounding_quotes(text: str) -> str:
+    text = text.strip()
+    if (text.startswith('"') and text.endswith('"')) or (
+        text.startswith("'") and text.endswith("'")
+    ):
+        return text[1:-1]
+    return text
+
+
 load_dotenv()
 
 HOST = os.getenv("IRC_HOST")
@@ -30,7 +40,7 @@ PORT = int(os.getenv("IRC_PORT") or 6667)
 SSL = os.getenv("IRC_SSL") == "true"
 NICK = os.getenv("NICK") or "caibot"
 PASSWORD = os.getenv("PASSWORD") or None
-CHANNELS = json.loads(os.getenv("CHANNELS") or "[]")
+CHANNELS = json.loads(remove_surrounding_quotes(os.getenv("CHANNELS") or "[]"))
 CHAR = os.getenv("CHAR")
 CHAT_ID = os.getenv("CHAT_ID")
 
@@ -73,7 +83,7 @@ class CustomBot(IrcBot):
 
 
 bot = CustomBot(HOST, PORT, NICK, CHANNELS, PASSWORD, use_ssl=SSL)
-utils.set_loglevel(logging.INFO)
+utils.set_loglevel(logging.DEBUG)
 bot.set_prefix("+")
 
 
