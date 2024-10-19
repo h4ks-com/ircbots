@@ -1,4 +1,4 @@
-FROM python:3.13.0-slim-bullseye
+FROM python:3.12.7-slim-bullseye
 RUN apt-get update && apt-get install -y curl nodejs npm jq ffmpeg && \
     npm install -g pm2 && pm2 install pm2-logrotate && \
     pm2 set pm2-logrotate:max_size 10M && pm2 set pm2-logrotate:compress true && \
