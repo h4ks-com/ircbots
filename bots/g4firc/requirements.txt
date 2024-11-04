@@ -1,5 +1,5 @@
 python-dotenv==1.0.1
-g4f[webdriver]==0.3.2.9
+g4f[webdriver]==0.3.3.3
 re-ircbot==2.0.16.dev0
 requests==2.32.3
 pygments==2.18.0
