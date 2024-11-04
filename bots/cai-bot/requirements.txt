@@ -1,7 +1,7 @@
 python-dotenv==1.0.1
 characterai @ git+https://github.com/kramcat/CharacterAI.git@main
 async_lru==2.0.4
-re-ircbot==2.0.15.dev0
+re-ircbot==2.0.16.dev0
 requests==2.32.3
 # re-ircbot @ git+https://github.com/matheusfillipe/ircbot.git@526d72fa2cdee54c6195198c63705f30afba25ab
 trio-asyncio==0.15.0
