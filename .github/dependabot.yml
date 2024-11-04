@@ -4,8 +4,16 @@ updates:
   directory: /
   schedule:
     interval: weekly
+  groups:
+    "all-docker-updates":
+      patterns:
+        - "*"
 - package-ecosystem: pip
   directories:
     - "/bots/*"
   schedule:
     interval: weekly
+  groups:
+    "all-pip-updates":
+      patterns:
+        - "*"
