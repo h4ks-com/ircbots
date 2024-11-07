@@ -67,6 +67,7 @@ INFO_CMDS = {
 }
 
 LANGS = [lng.strip() for lng in open("google_iso_lang_codes.txt").readlines()]
+LANG_ALIASES = {"zh": "zh-CN"}
 
 utils.setParseOrderTopBottom()
 ##################################################
@@ -87,6 +88,8 @@ for r in INFO_CMDS:
 def trans(m, dst, src="auto", autodetect=True):
     if not isinstance(m, str):
         m = m.group(1)
+
+    dst = LANG_ALIASES.get(dst, dst)
 
     # Removing nicknames
     match = re.match(r"^(\w+?\s*:\s*)?(.+)", m)
