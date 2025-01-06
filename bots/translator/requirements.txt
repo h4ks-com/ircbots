@@ -3,4 +3,4 @@ re-ircbot==1.7.0
 requests==2.32.3
 linkpreview
 validators
-googletrans==4.0.0rc1
+googletrans==4.0.2

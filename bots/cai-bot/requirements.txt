@@ -8,4 +8,4 @@ trio-asyncio==0.15.0
 tls-client==1.0.1
 websockets==14.1
 beautifulsoup4==4.12.3
-pygments==2.18.0
+pygments==2.19.1
