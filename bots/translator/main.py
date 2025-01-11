@@ -27,7 +27,6 @@ DBFILEPATH = NICK + ".db"
 PROMPT = ">>> "
 CACHE_SIZE = 1024
 WAIT_TIMEOUT = 60
-PROXIES = []
 
 # A maximum of simultaneously auto translations for each users
 MAX_AUTO_LANGS = 2
@@ -97,25 +96,21 @@ def trans(m, dst, src="auto", autodetect=True):
     m = match[2]
 
     logging.info("Translating: " + m)
-    proxy_index = None
-    while proxy_index is None or proxy_index < len(PROXIES):
-        translator = google_translator(
-            proxies={"http": PROXIES[proxy_index]} if proxy_index is not None else None
-        )
-        try:
-            detected_lang = translator.detect(m).lang
-            if autodetect and detected_lang == dst:
-                logging.info("1. Ignoring source equals destination: " + m)
-                logging.info(f"Source: {detected_lang}  Destination: {dst}")
-                return
-            if autodetect and src != "auto" and not detected_lang.startswith(src):
-                logging.info("2. Ignoring source equals destination: " + m)
-                logging.info(f"Source: {detected_lang}  Destination: {dst}")
-                return
-            msg = translator.translate(m, dest=dst, src=src)
-            return head + str(msg.text)
-        except Exception as e:
-            return str(e)
+    translator = google_translator()
+    try:
+        detected_lang = translator.detect(m).lang
+        if autodetect and detected_lang == dst:
+            logging.info("1. Ignoring source equals destination: " + m)
+            logging.info(f"Source: {detected_lang}  Destination: {dst}")
+            return
+        if autodetect and src != "auto" and not detected_lang.startswith(src):
+            logging.info("2. Ignoring source equals destination: " + m)
+            logging.info(f"Source: {detected_lang}  Destination: {dst}")
+            return
+        msg = translator.translate(m, dest=dst, src=src)
+        return head + str(msg.text)
+    except Exception as e:
+        return str(e)
 
 
 def translate(m, message, dst, src="auto", autodetect=True):
