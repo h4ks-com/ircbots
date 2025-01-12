@@ -11,6 +11,8 @@ updates:
 - package-ecosystem: pip
   directories:
     - "/bots/*"
+    ignore:
+    - dependency-name: websockets
   schedule:
     interval: weekly
   groups:

@@ -6,6 +6,6 @@ requests==2.32.3
 # re-ircbot @ git+https://github.com/matheusfillipe/ircbot.git@526d72fa2cdee54c6195198c63705f30afba25ab
 trio-asyncio==0.15.0
 tls-client==1.0.1
-websockets==14.1
+websockets==11.0.3
 beautifulsoup4==4.12.3
 pygments==2.19.1
