@@ -1,11 +1,9 @@
-import concurrent.futures
 import json
 import logging
 import os
 import re
 from collections import deque
 from copy import deepcopy
-from functools import lru_cache
 from hashlib import md5
 
 from dotenv import load_dotenv
@@ -83,8 +81,7 @@ for r in INFO_CMDS:
         return INFO_CMDS[regexp]
 
 
-@lru_cache(maxsize=CACHE_SIZE)
-def trans(m, dst, src="auto", autodetect=True):
+async def trans(m, dst, src="auto", autodetect=True) -> str:
     if not isinstance(m, str):
         m = m.group(1)
 
@@ -92,29 +89,31 @@ def trans(m, dst, src="auto", autodetect=True):
 
     # Removing nicknames
     match = re.match(r"^(\w+?\s*:\s*)?(.+)", m)
+    if match is None:
+        return "Could not parse source and destination languages"
     head = match[1] if match[1] else ""
     m = match[2]
 
     logging.info("Translating: " + m)
     translator = google_translator()
     try:
-        detected_lang = translator.detect(m).lang
+        detected_lang = (await translator.detect(m)).lang
         if autodetect and detected_lang == dst:
             logging.info("1. Ignoring source equals destination: " + m)
             logging.info(f"Source: {detected_lang}  Destination: {dst}")
-            return
+            return "?"
         if autodetect and src != "auto" and not detected_lang.startswith(src):
             logging.info("2. Ignoring source equals destination: " + m)
             logging.info(f"Source: {detected_lang}  Destination: {dst}")
-            return
-        msg = translator.translate(m, dest=dst, src=src)
+            return "?"
+        msg = await translator.translate(m, dest=dst, src=src)
         return head + str(msg.text)
     except Exception as e:
         return str(e)
 
 
-def translate(m, message, dst, src="auto", autodetect=True):
-    translated_msg = trans(m, dst, src, autodetect)
+async def translate(m, message, dst, src="auto", autodetect=True):
+    translated_msg = await trans(m, dst, src, autodetect)
     if translated_msg:
         return Message(
             message=f"  <{message.sender_nick} ({dst.upper()})> {translated_msg}",
@@ -123,7 +122,7 @@ def translate(m, message, dst, src="auto", autodetect=True):
 
 
 @utils.regex_cmd_with_messsage(r"^@(\S\S)(?::(\S\S))?\s(.*)$", ACCEPT_PRIVATE_MESSAGES)
-def translate_cmd(m, message):
+async def translate_cmd(bot, m, message):
     src = m.group(1)
     dst = m.group(2)
     text = m.group(3)
@@ -135,7 +134,7 @@ def translate_cmd(m, message):
         return f"<{message.nick}> {lang} is not a valid language code!"
     if dst and dst not in LANGS:
         return f"<{message.nick}> {dst} is not a valid language code!"
-    return translate(
+    return await translate(
         text, message, lang, src=src if dst else "auto", autodetect=not dst
     )
 
@@ -211,7 +210,7 @@ back_messages = {}
 
 # Implement back translations
 @utils.regex_cmd_with_messsage("^@back (.*)$", ACCEPT_PRIVATE_MESSAGES)
-def back(m, message):
+async def back(bot, m, message):
     global back_messages
     args = m.group(1).strip().split()
     if len(args) < 2:
@@ -237,7 +236,7 @@ def back(m, message):
     if len(cached) < n:
         return f"<{message.nick}> There are only {len(cached)} messages for {nick} on this channel"
     text = cached[-n]
-    translated_msg = trans(text, dst, "auto") or text
+    translated_msg = await trans(text, dst, "auto") or text
     return Message(
         message=f"  <{message.sender_nick} ({dst.upper()})> {translated_msg}",
         channel=message.channel,
@@ -274,8 +273,8 @@ def babel(m, message):
     )
 
 
-def babel_warning(m, message, babel_nick, dst, src="en"):
-    translated_msg = trans(m, dst, src)
+async def babel_warning(m, message, babel_nick, dst, src="en"):
+    translated_msg = await trans(m, dst, src)
     if translated_msg:
         return Message(
             message=f"<{babel_nick}> {translated_msg}",
@@ -306,10 +305,10 @@ def colorize(text):
     return Color(text, COLORS[_hash % len(COLORS)]).str + Color.esc
 
 
-def babel_message(m, message, babel_nick, dst, src="auto"):
+async def babel_message(m, message, babel_nick, dst, src="auto"):
     if not isinstance(m, str):
         m = m.group(1)
-    translated_msg = trans(m, dst, src)
+    translated_msg = await trans(m, dst, src)
     if not translated_msg:
         translated_msg = m
     return Message(
@@ -375,75 +374,70 @@ async def process_auto(bot: IrcBot, m, message):
         babel_users[message.channel][message.nick]["counter"] = 0
         logging.info(f"Reset babel counter for {message.nick} in {message.channel}")
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        future_translations = {}
-        # Auto mode
-        if message.nick in auto_nicks and message.channel in auto_nicks[message.nick]:
-            future_translations.update(
-                {
-                    executor.submit(translate, m, message, au["dst"], au["src"]): m[1]
-                    for au in auto_nicks[message.nick][message.channel]
-                }
+    future_translations = []
+    # Auto mode
+    if message.nick in auto_nicks and message.channel in auto_nicks[message.nick]:
+        future_translations.extend(
+            [
+                translate(
+                    m,
+                    message,
+                    au["dst"],
+                    au["src"],
+                )
+                for au in auto_nicks[message.nick][message.channel]
+            ]
+        )
+
+    # Send translations for babel users of this channel
+    BABEL_WARN_THRESHOLD = 5
+    for babel_nick in deepcopy(babel_users[message.channel]):
+        babel_users[message.channel][babel_nick]["counter"] += 1
+        dst = babel_users[message.channel][babel_nick]["dst"]
+        if babel_users[channel][babel_nick]["counter"] >= MAX_BABEL_MSG_COUNTER:
+            future_translations.append(
+                babel_warning(
+                    f"You've been inactive for too long! You will no longer receive translations for {message.channel}",
+                    message,
+                    babel_nick,
+                    dst,
+                    "en",
+                )
+            )
+            del babel_users[channel][babel_nick]
+            del babel_prefs[babel_nick]
+            continue
+        elif (
+            babel_users[channel][babel_nick]["counter"]
+            == MAX_BABEL_MSG_COUNTER - BABEL_WARN_THRESHOLD
+        ):
+            future_translations.append(
+                babel_warning(
+                    f"You will stop receiving translations for {message.channel} in {BABEL_WARN_THRESHOLD} messages. Say something here or on that channel.",
+                    message,
+                    babel_nick,
+                    dst,
+                    "en",
+                )
             )
 
-        # Send translations for babel users of this channel
-        BABEL_WARN_THRESHOLD = 5
-        for babel_nick in deepcopy(babel_users[message.channel]):
-            babel_users[message.channel][babel_nick]["counter"] += 1
-            dst = babel_users[message.channel][babel_nick]["dst"]
-            if babel_users[channel][babel_nick]["counter"] >= MAX_BABEL_MSG_COUNTER:
-                future_translations.update(
-                    {
-                        executor.submit(
-                            babel_warning,
-                            f"You've been inactive for too long! You will no longer receive translations for {message.channel}",
-                            message,
-                            babel_nick,
-                            dst,
-                            "en",
-                        ): f"babel_over: {m[1]}"
-                    }
-                )
-                del babel_users[channel][babel_nick]
-                del babel_prefs[babel_nick]
-                continue
-            elif (
-                babel_users[channel][babel_nick]["counter"]
-                == MAX_BABEL_MSG_COUNTER - BABEL_WARN_THRESHOLD
-            ):
-                future_translations.update(
-                    {
-                        executor.submit(
-                            babel_warning,
-                            f"You will stop receiving translations for {message.channel} in {BABEL_WARN_THRESHOLD} messages. Say something here or on that channel.",
-                            message,
-                            babel_nick,
-                            dst,
-                            "en",
-                        ): f"babel_warning: {m[1]}"
-                    }
-                )
-
-            future_translations.update(
-                {
-                    executor.submit(
-                        babel_message,
-                        m,
-                        message,
-                        babel_nick,
-                        dst,
-                    ): f"babel_warning: {m[1]}"
-                }
+        future_translations.append(
+            babel_message(
+                m,
+                message,
+                babel_nick,
+                dst,
             )
+        )
 
-        for future in concurrent.futures.as_completed(future_translations):
-            text = future_translations[future]
-            try:
-                data = future.result()
-            except Exception as exc:
-                logging.info("%r generated an exception: %s" % (text, exc))
-            else:
-                await bot.send_message(data)
+    # TODO: When upgrading to new re-ircbot just use asyncio.as_completed
+    # for future in asyncio.as_completed(future_translations):
+    for future in future_translations:
+        try:
+            result = await future
+            await bot.send_message(result)
+        except Exception as e:
+            logging.error(f"Error processing auto translations: {e}")
 
     # Babel mode
     if message.channel == message.nick:
@@ -466,7 +460,7 @@ async def process_auto(bot: IrcBot, m, message):
                     bot,
                     message.nick,
                     PROMPT
-                    + trans(
+                    + await trans(
                         "To what chat do you want to reply to?",
                         src="en",
                         dst=dst,
@@ -476,14 +470,14 @@ async def process_auto(bot: IrcBot, m, message):
                     + ", ".join(babel_channels),
                     expected_input=babel_channels,
                     timeout_message=PROMPT
-                    + trans(
+                    + await trans(
                         "Sorry but you took too long to reply!",
                         src="en",
                         dst=dst,
                         autodetect=False,
                     ),
                     repeat_question=PROMPT
-                    + trans(
+                    + await trans(
                         "Sorry, please choose one of these channels to send to:",
                         src="en",
                         dst=dst,
@@ -504,7 +498,7 @@ async def process_auto(bot: IrcBot, m, message):
                 bot,
                 message.nick,
                 PROMPT
-                + trans(
+                + await trans(
                     "To what language you want to translate to? Send a 2 letter iso code.",
                     src="en",
                     dst=dst,
@@ -512,14 +506,14 @@ async def process_auto(bot: IrcBot, m, message):
                 ),
                 expected_input=LANGS,
                 timeout_message=PROMPT
-                + trans(
+                + await trans(
                     "Sorry but you took too long to reply!",
                     src="en",
                     dst=dst,
                     autodetect=False,
                 ),
                 repeat_question=PROMPT
-                + trans(
+                + await trans(
                     "That is an invalid iso code! These are valid:",
                     src="en",
                     dst=dst,
@@ -531,7 +525,7 @@ async def process_auto(bot: IrcBot, m, message):
                 return
             babel_prefs[nick]["dst"] = resp
             await bot.send_message(
-                trans(
+                await trans(
                     f"Sending to channel \"{babel_prefs[nick]['channel']}\" translating to language \"{babel_prefs[nick]['dst']}\". You can always reset this with \"@reset\"",
                     src="en",
                     dst=dst,
@@ -540,7 +534,7 @@ async def process_auto(bot: IrcBot, m, message):
                 nick,
             )
 
-        msg = trans(m, dst=babel_prefs[nick]["dst"])
+        msg = await trans(m, dst=babel_prefs[nick]["dst"])
         msg = msg if msg else m[1]
         await bot.send_message(
             f" \x02<{nick}>\x02 {msg}",
