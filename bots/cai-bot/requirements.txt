@@ -1,4 +1,4 @@
-python-dotenv==1.0.1
+python-dotenv==1.1.0
 characterai @ git+https://github.com/kramcat/CharacterAI.git@main
 async_lru==2.0.5
 re-ircbot==2.0.16.dev0
