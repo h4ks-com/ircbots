@@ -7,5 +7,5 @@ requests==2.32.3
 trio-asyncio==0.15.0
 tls-client==1.0.1
 websockets==15.0.1
-beautifulsoup4==4.13.3
+beautifulsoup4==4.13.4
 pygments==2.19.1
