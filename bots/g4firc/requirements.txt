@@ -1,6 +1,6 @@
 python-dotenv==1.1.1
-g4f[webdriver]==0.5.6.3
+g4f[webdriver]==0.5.7.5
 re-ircbot==2.0.16.dev0
 requests==2.32.4
 pygments==2.19.2
-curl_cffi==0.11.4
+curl_cffi==0.12.0
