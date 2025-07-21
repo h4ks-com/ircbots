@@ -1,5 +1,4 @@
 python-dotenv==1.0.1
-characterai @ git+https://github.com/kramcat/CharacterAI.git@main
 async_lru==2.0.4
 re-ircbot==2.0.16.dev0
 requests==2.32.3
@@ -9,3 +8,4 @@ tls-client==1.0.1
 websockets==11.0.3
 beautifulsoup4==4.12.3
 pygments==2.19.1
+PyCharacterAI==2.2.49

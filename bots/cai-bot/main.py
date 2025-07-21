@@ -7,9 +7,6 @@ import time
 from dataclasses import dataclass, field
 from multiprocessing import Process
 
-import websockets
-from characterai.types.account import Anonymous
-from characterai.types.other import QueryChar
 from dotenv import load_dotenv
 from ircbot import IrcBot, utils
 from ircbot.format import (
@@ -20,7 +17,7 @@ from ircbot.format import (
 )
 from ircbot.message import Message
 from lib import ClientWrapper, get_token
-from pydantic import ValidationError
+from PyCharacterAI.types import CharacterShort
 
 
 def remove_surrounding_quotes(text: str) -> str:
@@ -53,8 +50,8 @@ assert CHAT_ID, "CHAT_ID is required"
 
 @dataclass
 class UserData:
-    search_results: list[QueryChar]
-    shown_results: list[QueryChar]
+    search_results: list[CharacterShort]
+    shown_results: list[CharacterShort]
 
 
 @dataclass
@@ -90,11 +87,10 @@ bot.set_prefix("+")
 async def format_response(
     bot: CustomBot, text: str, nick: str | None = None
 ) -> list[str]:
-    me = await bot.data.client.aiocai.get_me()
-    if not isinstance(me, Anonymous):
-        my_nick = me.username
-        name = "everyone" if nick is None else nick
-        text = re.sub(rf"\b{re.escape(my_nick)}\b", name, text, flags=re.IGNORECASE)
+    me = await bot.data.client.client.account.fetch_me()
+    my_nick = me.username
+    name = "everyone" if nick is None else nick
+    text = re.sub(rf"\b{re.escape(my_nick)}\b", name, text, flags=re.IGNORECASE)
     lines = format_line_breaks(markdown_to_irc(text))
     return [ln for ln in lines if ln]
 
@@ -110,28 +106,22 @@ def install_conversation_hooks(
             return
 
         text = args[1].strip()
-        exc = None
-        for _ in range(3):
-            try:
-                async with mybot.data.client.open_chat() as conn:
-                    answer = await conn.send_message(char, chat_id, text)
-                break
-            except websockets.exceptions.ConnectionClosedOK as e:
-                exc = e
-                logging.error("Connection closed. Reconnecting...")
-            except ValidationError:
-                return await mybot.reply(message, "-#" * 20)
-        else:
-            return await mybot.reply(message, f"Error: {exc or 'Unknown'}")
+        answer = await mybot.data.client.client.chat.send_message(char, chat_id, text)
         await mybot.reply(
-            message, await format_response(mybot, answer.text, message.sender_nick)
+            message,
+            await format_response(
+                mybot, answer.get_primary_candidate().text, message.sender_nick
+            ),
         )
 
 
-def add_character_to_channel(token: str, channel: str, nick: str, char: QueryChar):
-    def create_bot() -> CustomBot:
+async def add_character_to_channel(
+    token: str, channel: str, nick: str, char: CharacterShort
+):
+    async def create_bot() -> CustomBot:
         new_bot = CustomBot(HOST, PORT, nick, channel, use_ssl=SSL)
         new_bot.data = BotData(channels={}, token=token, client=ClientWrapper(token))
+        await new_bot.data.client.refresh_client()
 
         @new_bot.regex_cmd_with_message("^help .*")
         def no_help(args: re.Match, message: Message):
@@ -141,15 +131,18 @@ def add_character_to_channel(token: str, channel: str, nick: str, char: QueryCha
 
     async def get_char():
         async with new_bot.data.client.new_chat(char.external_id) as (
-            new,
-            answer,
-            conn,
+            chat,
+            greeting_message,
         ):
-            text = answer.text
+            text = (
+                greeting_message.get_primary_candidate().text
+                if greeting_message
+                else ""
+            )
             await bot.sleep(0.5)
         logging.info(f"Got response for {nick}")
         install_conversation_hooks(
-            new_bot, nick=new_bot.nick, char=char.external_id, chat_id=new.chat_id
+            new_bot, nick=new_bot.nick, char=char.external_id, chat_id=chat.chat_id
         )
         new_bot.install_hooks()
         await new_bot.join(channel)
@@ -157,7 +150,7 @@ def add_character_to_channel(token: str, channel: str, nick: str, char: QueryCha
 
     for _ in range(5):
         try:
-            new_bot = create_bot()
+            new_bot = await create_bot()
             new_bot.run_with_callback(get_char)
         except ConnectionError:
             logging.error(f"Connection error for {nick}, trying again ...")
@@ -167,7 +160,7 @@ def add_character_to_channel(token: str, channel: str, nick: str, char: QueryCha
 
 
 def get_search_results_lines(
-    message: Message, search_results: list[QueryChar]
+    message: Message, search_results: list[CharacterShort]
 ) -> list[str]:
     lines = []
     user_data = bot.data.channels[message.channel].users.get(message.sender_nick)
@@ -179,7 +172,7 @@ def get_search_results_lines(
         greeting = char.greeting.replace("{{user}}", message.sender_nick)
         lines.append(
             truncate(
-                f"{i+1}) \x02{char.participant__name}\x02 - {markdown_to_irc(title)} :: {markdown_to_irc(greeting)}",
+                f"{i+1}) \x02{char.name}\x02 - {markdown_to_irc(title)} :: {markdown_to_irc(greeting)}",
             )
         )
         user_data.shown_results.append(char)
@@ -193,7 +186,7 @@ def get_search_results_lines(
 async def search(args: re.Match, message: Message):
     client = bot.data.client
     query = "+".join(utils.m2list(args))
-    search_results = await client.aiocai.search(query)
+    search_results = await client.client.character.search_characters(query)
     bot.data.channels[message.channel].users[message.sender_nick] = UserData(
         search_results=search_results, shown_results=[]
     )
@@ -240,7 +233,7 @@ async def add(args: re.Match, message: Message):
         return
 
     char = user_data.shown_results[number - 1]
-    nick = irc_sanitize_nick(char.participant__name)
+    nick = irc_sanitize_nick(char.name)
     if nick in bot.data.channels[message.channel].children:
         await bot.reply(
             message, f"Character '{nick}' is already in use. Delete it first."
@@ -292,6 +285,7 @@ async def list_characters(args: re.Match, message: Message):
 async def on_connect():
     token = await get_token()
     bot.data = BotData(channels={}, token=token, client=ClientWrapper(token))
+    await bot.data.client.refresh_client()
 
     for channel in CHANNELS:
         await bot.join(channel)

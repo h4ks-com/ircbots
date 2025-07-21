@@ -3,23 +3,21 @@ import json
 import logging
 import os
 import poplib
-from contextlib import asynccontextmanager
 from email.parser import Parser
-from typing import AsyncIterator
 
 import requests
 from async_lru import alru_cache
 from bs4 import BeautifulSoup
-from characterai import aiocai
-from characterai.aiocai.client import WSConnect
-from characterai.types.chat2 import BotAnswer, ChatData
 from dotenv import load_dotenv
+from PyCharacterAI import Client, get_client
+from PyCharacterAI.types import Chat, Turn
 
 load_dotenv()
 
 POP3_SERVER = os.getenv("POP3_SERVER")
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
 PASSWORD = os.getenv("PASSWORD")
+POP3_PORT = int(os.getenv("POP3_PORT", 995))
 assert POP3_SERVER, "POP3_SERVER is required"
 assert EMAIL_ADDRESS, "EMAIL_ADDRESS is required"
 assert PASSWORD, "PASSWORD is required"
@@ -43,7 +41,7 @@ headers = {
 
 
 def get_token_from_email():
-    pop_conn = poplib.POP3_SSL(POP3_SERVER)
+    pop_conn = poplib.POP3_SSL(POP3_SERVER, port=POP3_PORT)
     pop_conn.user(EMAIL_ADDRESS)
     pop_conn.pass_(PASSWORD)
 
@@ -171,27 +169,22 @@ async def get_token() -> str:
 
 
 class ClientWrapper:
+    client: Client
+
     def __init__(self, token: str):
         self.token = token
-        self.aiocai = aiocai.Client(token=token)
 
-    async def refresh_client(self) -> aiocai.Client:
+    async def refresh_client(self) -> Client:
         # drop cache for get_client
         get_token.cache_clear()
         self.token = await get_token()
-        self.aiocai = aiocai.Client(token=self.token)
-        return self.aiocai
+        print(f"Refreshing client with token: {self.token}")
+        self.client = await get_client(token=self.token)
+        return self.client
 
-    @asynccontextmanager
-    async def new_chat(
-        self, char_id: str
-    ) -> AsyncIterator[tuple[ChatData, BotAnswer, WSConnect]]:
-        me = await self.aiocai.get_me()
-        async with await self.aiocai.connect() as conn:
-            new, answer = await conn.new_chat(char_id, str(me.id))
-            yield new, answer, conn
-
-    @asynccontextmanager
-    async def open_chat(self) -> AsyncIterator[WSConnect]:
-        async with await self.aiocai.connect() as conn:
-            yield conn
+    async def new_chat(self, char_id: str) -> tuple[Chat, Turn | None]:
+        # me = await self.aiocai.account.fetch_me()
+        chat, greeting_message = await self.client.chat.create_chat(
+            char_id, greeting=True
+        )
+        return chat, greeting_message
