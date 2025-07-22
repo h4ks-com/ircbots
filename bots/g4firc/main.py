@@ -1,19 +1,20 @@
 import asyncio
 import json
+import logging
 import os
 import re
 from collections import deque
 from functools import lru_cache
 from typing import List
 
-import g4f
 import requests
 from cachetools import TTLCache
 from dotenv import load_dotenv
-from g4f import Provider, ProviderType
+from g4f import ChatCompletion, Provider, ProviderType
 from g4f.client import AsyncClient
-from g4f.stubs import ChatCompletion
-from ircbot import Color, IrcBot, Message
+from g4f.models import ModelRegistry, __models__
+from ircbot import Color, IrcBot, Message, utils
+from ircbot import message as message_module
 from ircbot.client import MAX_MESSAGE_LEN, PersistentData
 from ircbot.format import format_line_breaks, markdown_to_irc
 
@@ -85,8 +86,9 @@ COMMANDS = [
 ]
 
 model_map = {
-    "gpt3": "gpt-3.5-turbo",
+    "deepseek": "deepseek-r1",
     "gpt4": "gpt-4",
+    "gpt4o": "gpt-4o",
     "gpt": "gpt-4",
     "llama": "llama-13b",
     "falcon": "falcon-40b",
@@ -94,7 +96,7 @@ model_map = {
 }
 
 
-def get_provider_name(provider):
+def get_provider_name(provider: Provider.ProviderType) -> str:
     return provider.__name__
 
 
@@ -111,24 +113,21 @@ command_to_provider = {
     get_provider_name(provider).lower(): provider for provider in providers
 }
 
-all_models = [
-    getattr(g4f.models, model_name)
-    for model_name in dir(g4f.models)
-    if isinstance(getattr(g4f.models, model_name), g4f.models.Model)
-]
-for provider in providers:
+all_models = ModelRegistry.all_models()
+
+for model_name in model_map:
+    if __models__.get(model_map[model_name]) is None:
+        print(f"Model {model_map[model_name]} not found in __models__")
+        continue
+    model, providers = __models__.get(model_map[model_name])
+    if not providers:
+        print(f"Model {model_name} not found in providers")
+        continue
+
+    provider: type[Provider.BaseProvider] = providers[0]
     name = get_provider_name(provider)
-    model = []
-    if provider.supports_gpt_35_turbo:
-        model.append("gpt-3.5-turbo")
-    if provider.supports_gpt_4:
-        model.append("gpt-4")
+    models = [model]
 
-    for m in all_models:
-        if m.best_provider == provider:
-            model.append(m.name)
-
-    provider.model = model
     if not hasattr(provider, "url"):
         continue
     url = provider.url
@@ -288,7 +287,7 @@ def generate_formatted_ai_response(nickname: str, text: str) -> List[str]:
 def format_provider(provider: Provider.BaseProvider) -> str:
     """Format the provider."""
     name = get_provider_name(provider)
-    model = str(provider.model)[:64]
+    model = str(provider.models)[:64]
     if not hasattr(provider, "url"):
         url = ""
     else:
@@ -301,7 +300,9 @@ def format_provider(provider: Provider.BaseProvider) -> str:
     return f"{name} {model=} {url=} -- available: {working}"
 
 
-def list_providers(_, message: Message) -> list[Message] | str:
+def list_providers(
+    _, message: message_module.Message
+) -> list[message_module.Message] | str:
     """List all providers."""
     text = message.text
     m = re.match(r"^!(\S+) (.*)$", text)
@@ -322,7 +323,7 @@ def list_providers(_, message: Message) -> list[Message] | str:
 
 async def parse_command(
     match: re.Match,
-    message: Message,
+    message: message_module.Message,
     model: str | None = None,
     provider=None,
 ):
@@ -342,19 +343,19 @@ async def parse_command(
             return f"{message.nick}: Provider '{command}' not found. Try !list or !providers."
 
     if model is None:
-        model = provider.model[0]
+        model = provider.models[0]
 
     text = m.group(2)
     context.append({"role": "user", "content": text})
-    try:
-        response = await ai_respond(list(context), model, provider=provider)
-        context.append({"role": "assistant", "content": response})
-        await bot.reply(message, generate_formatted_ai_response(message.nick, response))
-    except Exception as e:
-        return f"{message.nick}: {e} Try another provider"
+    # try:
+    response = await ai_respond(list(context), model, provider=provider)
+    context.append({"role": "assistant", "content": response})
+    await bot.reply(message, generate_formatted_ai_response(message.nick, response))
+    # except Exception as e:
+    #     return f"{message.nick}: {e} Try another provider"
 
 
-async def get_info(match: re.Match, message: Message):
+async def get_info(match: re.Match, message: message_module.Message):
     provider_str = match.group(1)
     provider = command_to_provider.get(provider_str)
     if provider is None:
@@ -362,7 +363,7 @@ async def get_info(match: re.Match, message: Message):
     return f"{message.nick}: {format_provider(provider)}"
 
 
-async def clear_context(match: re.Match, message: Message):
+async def clear_context(match: re.Match, message: message_module.Message):
     get_user_context(message.nick).clear()
     return f"{message.nick}: Context cleared."
 
@@ -374,7 +375,7 @@ async def test_provider(
     async with semaphore:
         try:
             messages = [{"role": "user", "content": "hi"}]
-            model = provider.model[0]
+            model = provider.models[0]
             async with asyncio.timeout(10):
                 text = await ai_respond(messages, model, provider=provider)
             result = bool(text) and isinstance(text, str)
@@ -389,7 +390,7 @@ working_providers_cache = TTLCache(maxsize=1, ttl=60 * 60)
 lock = asyncio.Lock()
 
 
-async def selftest(match: re.Match, message: Message):
+async def selftest(match: re.Match, message: message_module.Message):
     """Test all providers."""
     if lock.locked():
         return f"{message.nick}: Self test is already running. Please wait."
@@ -503,17 +504,17 @@ if __name__ == "__main__":
         elif command in model_map:
             model = model_map[command]
             for provider in providers:
-                if model in provider.model and provider.working:
+                if model in provider.models and provider.working:
                     break
             else:
                 provider = None
 
             def _wrap(provider, model):
-                async def _func(bot, match, message):
+                async def _func(match, message):
                     if provider is None:
                         return f"{message.nick}: No working provider found for {model=}"
                     return await parse_command(
-                        bot, match, message, model=model, provider=provider
+                        match, message, model=model, provider=provider
                     )
 
                 return _func
@@ -534,4 +535,5 @@ if __name__ == "__main__":
             "simplify": None,
         }
 
+    utils.set_loglevel(logging.DEBUG)
     bot.run_with_callback(on_connect)

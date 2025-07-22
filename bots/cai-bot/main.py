@@ -17,6 +17,7 @@ from ircbot.format import (
 )
 from ircbot.message import Message
 from lib import ClientWrapper, get_token
+from PyCharacterAI.exceptions import SessionClosedError
 from PyCharacterAI.types import CharacterShort
 
 
@@ -106,12 +107,25 @@ def install_conversation_hooks(
             return
 
         text = args[1].strip()
-        answer = await mybot.data.client.client.chat.send_message(char, chat_id, text)
+        for _ in range(3):
+            try:
+                answer = await mybot.data.client.client.chat.send_message(
+                    char, chat_id, text
+                )
+                response = answer.get_primary_candidate().text
+                break
+            except SessionClosedError:
+                logging.error(
+                    f"Session closed for {nick}, trying to refresh client ..."
+                )
+                await mybot.data.client.refresh_client()
+                continue
+        else:
+            response = "Sorry, I couldn't process your request at the moment."
+
         await mybot.reply(
             message,
-            await format_response(
-                mybot, answer.get_primary_candidate().text, message.sender_nick
-            ),
+            await format_response(mybot, response, message.sender_nick),
         )
 
 
