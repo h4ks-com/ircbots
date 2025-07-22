@@ -4,13 +4,15 @@ import logging
 import os
 import poplib
 from email.parser import Parser
+from urllib.parse import quote
 
 import requests
 from async_lru import alru_cache
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from PyCharacterAI import Client, get_client
-from PyCharacterAI.types import Chat, Turn
+from PyCharacterAI.exceptions import SearchError
+from PyCharacterAI.types import CharacterShort, Chat, Turn
 
 load_dotenv()
 
@@ -18,9 +20,11 @@ POP3_SERVER = os.getenv("POP3_SERVER")
 EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
 PASSWORD = os.getenv("PASSWORD")
 POP3_PORT = int(os.getenv("POP3_PORT", 995))
+WEB_NEXT_AUTH = os.getenv("WEB_NEXT_AUTH")
 assert POP3_SERVER, "POP3_SERVER is required"
 assert EMAIL_ADDRESS, "EMAIL_ADDRESS is required"
 assert PASSWORD, "PASSWORD is required"
+assert WEB_NEXT_AUTH is not None, "WEB_NEXT_AUTH is required"
 
 
 URL = "https://beta.character.ai"
@@ -179,7 +183,9 @@ class ClientWrapper:
         get_token.cache_clear()
         self.token = await get_token()
         print(f"Refreshing client with token: {self.token}")
-        self.client = await get_client(token=self.token)
+        self.client = await get_client(
+            token=self.token, web_next_auth=f"web-next-auth={WEB_NEXT_AUTH}"
+        )
         return self.client
 
     async def new_chat(self, char_id: str) -> tuple[Chat, Turn | None]:
@@ -188,3 +194,28 @@ class ClientWrapper:
             char_id, greeting=True
         )
         return chat, greeting_message
+
+    async def search_characters(self, character_name: str) -> list[CharacterShort]:
+        payload = {"json": {"searchQuery": quote(character_name)}}
+        request = requests.get(
+            url=f"https://character.ai/api/trpc/search.search?input={json.dumps(payload, separators=(',', ':'))}",
+            headers=self.client.get_headers(include_web_next_auth=True),
+        )
+
+        if request.status_code == 200:
+            raw_characters = (request.json())["result"]["data"]["json"]["characters"]
+            return [CharacterShort(raw_character) for raw_character in raw_characters]
+
+        raise SearchError("Cannot search for characters.")
+
+
+async def main():
+    client = ClientWrapper(token="")
+    await client.refresh_client()
+    for c in await client.search_characters("SpongeBob"):
+        print(c.name, c.character_id, c.avatar)
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(main())

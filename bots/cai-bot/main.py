@@ -115,13 +115,10 @@ def install_conversation_hooks(
         )
 
 
-async def add_character_to_channel(
-    token: str, channel: str, nick: str, char: CharacterShort
-):
-    async def create_bot() -> CustomBot:
+def add_character_to_channel(token: str, channel: str, nick: str, char: CharacterShort):
+    def create_bot() -> CustomBot:
         new_bot = CustomBot(HOST, PORT, nick, channel, use_ssl=SSL)
         new_bot.data = BotData(channels={}, token=token, client=ClientWrapper(token))
-        await new_bot.data.client.refresh_client()
 
         @new_bot.regex_cmd_with_message("^help .*")
         def no_help(args: re.Match, message: Message):
@@ -130,19 +127,13 @@ async def add_character_to_channel(
         return new_bot
 
     async def get_char():
-        async with new_bot.data.client.new_chat(char.external_id) as (
-            chat,
-            greeting_message,
-        ):
-            text = (
-                greeting_message.get_primary_candidate().text
-                if greeting_message
-                else ""
-            )
-            await bot.sleep(0.5)
+        await new_bot.data.client.refresh_client()
+        chat, greeting_message = await new_bot.data.client.new_chat(char.character_id)
+        text = greeting_message.get_primary_candidate().text if greeting_message else ""
+        await bot.sleep(0.5)
         logging.info(f"Got response for {nick}")
         install_conversation_hooks(
-            new_bot, nick=new_bot.nick, char=char.external_id, chat_id=chat.chat_id
+            new_bot, nick=new_bot.nick, char=char.character_id, chat_id=chat.chat_id
         )
         new_bot.install_hooks()
         await new_bot.join(channel)
@@ -150,7 +141,7 @@ async def add_character_to_channel(
 
     for _ in range(5):
         try:
-            new_bot = await create_bot()
+            new_bot = create_bot()
             new_bot.run_with_callback(get_char)
         except ConnectionError:
             logging.error(f"Connection error for {nick}, trying again ...")
@@ -186,7 +177,7 @@ def get_search_results_lines(
 async def search(args: re.Match, message: Message):
     client = bot.data.client
     query = "+".join(utils.m2list(args))
-    search_results = await client.client.character.search_characters(query)
+    search_results = await client.search_characters(query)
     bot.data.channels[message.channel].users[message.sender_nick] = UserData(
         search_results=search_results, shown_results=[]
     )
