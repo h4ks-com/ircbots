@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 from collections import deque
 from functools import lru_cache
 from typing import List
@@ -10,10 +11,7 @@ from typing import List
 import requests
 from cachetools import TTLCache
 from dotenv import load_dotenv
-from g4f import ChatCompletion, Provider, ProviderType
-from g4f.client import AsyncClient
-from g4f.models import ModelRegistry, __models__
-from ircbot import Color, IrcBot, Message, utils
+from ircbot import IrcBot, Message, utils
 from ircbot import message as message_module
 from ircbot.client import MAX_MESSAGE_LEN, PersistentData
 from ircbot.format import format_line_breaks, markdown_to_irc
@@ -29,7 +27,7 @@ SSL = os.environ["IRC_SSL"] == "true"
 DATABASE = os.environ.get("DATABASE") or "database.db"
 MAX_CHATS_PER_USER = int(os.environ.get("MAX_CHATS_PER_USER") or 10)
 
-PROVIDER_BLACKLIST = ["bing"]
+API_BASE_URL = "https://g4f.h4ks.com"
 
 COMMANDS = [
     (
@@ -43,16 +41,15 @@ COMMANDS = [
         "Gets info about one specific provider. Usage: !info <provider>",
     ),
     (
+        "gpt",
+        "Use any provider/model that works, not necessarily gpt",
+        "Use any provider that works, not necessarily gpt. Usage: !gpt <text> If provider is not specified, it will use the first available provider.",
+    ),
+    (
         "providers",
         "List all providers",
         "Lists available providers with their info like model and url. Same as list",
     ),
-    ("gpt3", "Generate text with GPT-3", "Generates text with GPT-3.5"),
-    ("gpt4", "Generate text with GPT-4", "Generates text with GPT-4"),
-    ("gpt", "Generate text with GPT-4", "Generates text with GPT-4. Same as gpt4"),
-    ("llama", "Generate text with Llama", "Generates text with Llama"),
-    ("falcon", "Generate text with Falcon", "Generates text with Falcon"),
-    ("davinci", "Generate text with Davinci", "Generates text with Davinci"),
     (
         "clear",
         "Clears context",
@@ -78,66 +75,33 @@ COMMANDS = [
         "Pastes the context to pastebin",
         "Pastes all lines of the current context to ix.io. Usage: !paste",
     ),
-    (
-        "selftest",
-        "Self tests the bot",
-        "Tests all providers",
-    ),
 ]
 
-model_map = {
-    "deepseek": "deepseek-r1",
-    "gpt4": "gpt-4",
-    "gpt4o": "gpt-4o",
-    "gpt": "gpt-4",
-    "llama": "llama-13b",
-    "falcon": "falcon-40b",
-    "davinci": "text-davinci-003",
-}
+model_map = {}
+all_providers = {}
 
 
-def get_provider_name(provider: Provider.ProviderType) -> str:
-    return provider.__name__
+# Function to fetch providers and models from the API
+def fetch_providers_and_models():
+    global all_providers, model_map
+    try:
+        response = requests.get(f"{API_BASE_URL}/api/providers")
+        response.raise_for_status()
+        all_providers = response.json()
+
+        # Build model map for quick lookup
+        for provider_name, provider_data in all_providers.items():
+            for model in provider_data.get("supported_models", []):
+                model_map[model.lower()] = model
+
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error fetching providers and models: {e}")
+        # Fallback or exit if essential data cannot be fetched
+        exit(1)
 
 
-# Load all modules from Provider.Providers
-providers = list(Provider.ProviderUtils.convert.values())
-providers = [
-    provider
-    for provider in providers
-    if not provider.needs_auth
-    and get_provider_name(provider).lower() not in PROVIDER_BLACKLIST
-]
-
-command_to_provider = {
-    get_provider_name(provider).lower(): provider for provider in providers
-}
-
-all_models = ModelRegistry.all_models()
-
-for model_name in model_map:
-    if __models__.get(model_map[model_name]) is None:
-        print(f"Model {model_map[model_name]} not found in __models__")
-        continue
-    model, providers = __models__.get(model_map[model_name])
-    if not providers:
-        print(f"Model {model_name} not found in providers")
-        continue
-
-    provider: type[Provider.BaseProvider] = providers[0]
-    name = get_provider_name(provider)
-    models = [model]
-
-    if not hasattr(provider, "url"):
-        continue
-    url = provider.url
-    COMMANDS.append(
-        (
-            name.lower(),
-            f"Generate text with {name}",
-            f"Generates text with {name}. {model=} {url=}",
-        )
-    )
+# Call the function to fetch data at startup
+fetch_providers_and_models()
 
 
 chats = PersistentData(DATABASE, "chats", ["nick", "chat", "headline"])
@@ -251,22 +215,43 @@ def save_chat_history(nick: str):
 
 
 def pastebin(text) -> str:
-    url = "http://ix.io"
-    payload = {"f:1=<-": text}
-    response = requests.request("POST", url, data=payload)
-    return response.text
+    url = "https://s.h4ks.com/api/"
+    with tempfile.NamedTemporaryFile(suffix=".txt") as f:
+        with open(f.name, "wb") as file:
+            file.write(text.encode("utf-8"))
+        response = requests.post(
+            url,
+            files={"file": open(file.name, "rb")},
+        )
+    try:
+        obj = response.json()
+    except json.JSONDecodeError:
+        response.raise_for_status()
+        return response.text
+
+    if "url" in obj:
+        return obj["url"]
+    if "error" in obj:
+        return f"error: {obj['error']}"
+    return f"error: {obj}"
 
 
-async def ai_respond(messages: list[dict], model: str, provider: ProviderType) -> str:
+async def ai_respond(
+    messages: list[dict], provider: str | None = None, model: str | None = None
+) -> str:
     """Generate a response from the AI."""
-    client = AsyncClient()
-    chat_completion: ChatCompletion = await client.chat.completions.create(
-        messages=messages, model=model, provider=provider, stream=False
-    )
-    choices = chat_completion.choices
-    if len(choices) == 0:
-        raise Exception("No response from the provider")
-    return choices[0].message.content
+    headers = {"Content-Type": "application/json"}
+    params = {"provider": provider, "model": model}
+    data = {"messages": messages}
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/api/completions", headers=headers, json=data, params=params
+        )
+        response.raise_for_status()
+        chat_completion = response.json()
+        return chat_completion.get("completion", "-")
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"API request failed: {e}")
 
 
 def preprocess(text: str) -> List[str]:
@@ -284,20 +269,12 @@ def generate_formatted_ai_response(nickname: str, text: str) -> List[str]:
     return lines
 
 
-def format_provider(provider: Provider.BaseProvider) -> str:
+def format_provider(provider_name: str, provider_data: dict) -> str:
     """Format the provider."""
-    name = get_provider_name(provider)
-    model = str(provider.models)[:64]
-    if not hasattr(provider, "url"):
-        url = ""
-    else:
-        url = provider.url
-    working = (
-        Color("Yes", fg=Color.green).str
-        if provider.working
-        else Color("No", fg=Color.red).str
-    )
-    return f"{name} {model=} {url=} -- available: {working}"
+    name = provider_name
+    url = provider_data.get("url", "")
+    supported_models = ", ".join(provider_data.get("supported_models", []))
+    return f"{name} url={url} models=[{supported_models}]"
 
 
 def list_providers(
@@ -310,13 +287,19 @@ def list_providers(
     if m is None or len(m.groups()) < 2:
         return [
             Message(channel=message.nick, message=m, is_private=True)
-            for m in [format_provider(p) for p in providers if p.working]
+            for m in [
+                format_provider(p_name, p_data)
+                for p_name, p_data in all_providers.items()
+            ]
         ]
     arg = m.group(2)
     if arg.lower() in ["all", "-a", "a"]:
         return [
             Message(channel=message.nick, message=m, is_private=True)
-            for m in [format_provider(p) for p in providers]
+            for m in [
+                format_provider(p_name, p_data)
+                for p_name, p_data in all_providers.items()
+            ]
         ]
     return f"{message.nick}: Unknown argument {arg}. Valid arguments are: all, -a, a"
 
@@ -325,7 +308,6 @@ async def parse_command(
     match: re.Match,
     message: message_module.Message,
     model: str | None = None,
-    provider=None,
 ):
     context = get_user_context(message.nick)
     text = message.text
@@ -333,34 +315,59 @@ async def parse_command(
     if m is None or len(m.groups()) != 2:
         return f"{message.nick}: What?"
 
-    if provider is None:
-        command = m.group(1)
-        provider = command_to_provider.get(command)
-        if provider is None:
-            provider = command_to_provider.get(command.lower())
-
-        if provider is None:
-            return f"{message.nick}: Provider '{command}' not found. Try !list or !providers."
+    command = m.group(1).lower()
 
     if model is None:
-        model = provider.models[0]
+        # Try to find a model based on the command
+        if command in model_map:
+            model = model_map[command]
+        else:
+            # If command is a provider name, pick the first supported model
+            provider_data = all_providers.get(command.capitalize())
+            if provider_data and provider_data.get("supported_models"):
+                model = provider_data["supported_models"][0]
+            else:
+                return f"{message.nick}: Model or provider '{command}' not found. Try !list or !providers."
 
     text = m.group(2)
     context.append({"role": "user", "content": text})
-    # try:
-    response = await ai_respond(list(context), model, provider=provider)
-    context.append({"role": "assistant", "content": response})
-    await bot.reply(message, generate_formatted_ai_response(message.nick, response))
-    # except Exception as e:
-    #     return f"{message.nick}: {e} Try another provider"
+    try:
+        response = await ai_respond(list(context), model=model, provider=command)
+        context.append({"role": "assistant", "content": response})
+        await bot.reply(message, generate_formatted_ai_response(message.nick, response))
+    except Exception as e:
+        return f"{message.nick}: {e} Try another provider/model"
+
+
+async def any_provider(match: re.Match, message: message_module.Message):
+    """Use any provider that works, not necessarily gpt."""
+    text = message.text
+    context = get_user_context(message.nick)
+
+    m = re.match(r"^!(\S+) (.*)$", text)
+    if m is None or len(m.groups()) != 2:
+        return f"{message.nick}: What? Usage: !gpt <text>"
+
+    text = m.group(2)
+    if not text:
+        return f"{message.nick}: No text provided. Usage: !gpt <text>"
+    context.append({"role": "user", "content": text})
+    try:
+        response = await ai_respond(list(context))
+        context.append({"role": "assistant", "content": response})
+        await bot.reply(message, generate_formatted_ai_response(message.nick, response))
+    except Exception as e:
+        return f"{message.nick}: {e} Try another provider/model"
 
 
 async def get_info(match: re.Match, message: message_module.Message):
     provider_str = match.group(1)
-    provider = command_to_provider.get(provider_str)
-    if provider is None:
+    provider_data = all_providers.get(provider_str.capitalize())
+    if provider_data is None:
         return f"{message.nick}: Provider '{provider_str}' not found. Try !list or !providers."
-    return f"{message.nick}: {format_provider(provider)}"
+    return (
+        f"{message.nick}: {format_provider(provider_str.capitalize(), provider_data)}"
+    )
 
 
 async def clear_context(match: re.Match, message: message_module.Message):
@@ -369,72 +376,31 @@ async def clear_context(match: re.Match, message: message_module.Message):
 
 
 async def test_provider(
-    provider: ProviderType, queue: asyncio.Queue, semaphore: asyncio.Semaphore
+    provider_name: str,
+    provider_data: dict,
+    queue: asyncio.Queue,
+    semaphore: asyncio.Semaphore,
 ) -> bool:
     """Sends hi to a provider and check if there is response or error."""
     async with semaphore:
         try:
             messages = [{"role": "user", "content": "hi"}]
-            model = provider.models[0]
-            async with asyncio.timeout(10):
-                text = await ai_respond(messages, model, provider=provider)
-            result = bool(text) and isinstance(text, str)
+            if not provider_data.get("supported_models"):
+                result = False
+            else:
+                model = provider_data["supported_models"][0]
+                async with asyncio.timeout(10):
+                    text = await ai_respond(messages, model=model)
+                result = bool(text) and isinstance(text, str)
         except Exception:
             result = False
 
-        await queue.put((provider, result))
+        await queue.put((provider_name, result))
     return result
 
 
 working_providers_cache = TTLCache(maxsize=1, ttl=60 * 60)
 lock = asyncio.Lock()
-
-
-async def selftest(match: re.Match, message: message_module.Message):
-    """Test all providers."""
-    if lock.locked():
-        return f"{message.nick}: Self test is already running. Please wait."
-
-    if "working_providers" in working_providers_cache:
-        working_providers = working_providers_cache["working_providers"]
-        return f"{message.nick}: Working providers: " + ", ".join(working_providers)
-
-    async with lock:
-        await bot.send_message(
-            Message(
-                channel=message.channel,
-                message=f"{message.nick} Checking working providers....",
-                is_private=False,
-            )
-        )
-
-        results = {}
-
-        queue = asyncio.Queue()
-
-        async def producer():
-            semaphore = asyncio.Semaphore(8)
-            await asyncio.gather(
-                *[test_provider(provider, queue, semaphore) for provider in providers]
-            )
-            await queue.join()
-            await queue.put((None, None))
-
-        async def consumer():
-            async with asyncio.timeout(5 * 60):
-                while True:
-                    provider, result = await queue.get()
-                    if provider is None and result is None:
-                        break
-                    name = get_provider_name(provider)
-                    results[name] = result
-                    queue.task_done()
-
-        await asyncio.gather(producer(), consumer())
-
-        working_providers = [p for p, r in results.items() if r]
-        working_providers_cache["working_providers"] = working_providers
-        return f"{message.nick}: Working providers: " + ", ".join(working_providers)
 
 
 async def on_connect():
@@ -454,7 +420,7 @@ if __name__ == "__main__":
             func = clear_context
         elif command == "paste":
 
-            async def _func_paste(bot, match, message):
+            async def _func_paste(match, message):
                 text = "\n".join(
                     [
                         f'{m["role"]}: {m["content"]}'
@@ -464,6 +430,9 @@ if __name__ == "__main__":
                 return pastebin(text)
 
             func = _func_paste
+
+        elif command == "gpt":
+            func = any_provider
 
         elif command == "save":
 
@@ -501,30 +470,49 @@ if __name__ == "__main__":
 
             func = _func_list
 
-        elif command in model_map:
-            model = model_map[command]
-            for provider in providers:
-                if model in provider.models and provider.working:
-                    break
-            else:
-                provider = None
+        elif command in model_map or command.capitalize() in all_providers:
+            model_name_for_command = None
+            if command in model_map:
+                model_name_for_command = model_map[command]
+            elif command.capitalize() in all_providers:
+                provider_data = all_providers[command.capitalize()]
+                if provider_data.get("supported_models"):
+                    model_name_for_command = provider_data["supported_models"][0]
 
-            def _wrap(provider, model):
+            def _wrap(model):
                 async def _func(match, message):
-                    if provider is None:
-                        return f"{message.nick}: No working provider found for {model=}"
-                    return await parse_command(
-                        match, message, model=model, provider=provider
-                    )
+                    if model is None:
+                        return f"{message.nick}: No working model found for {command}"
+                    return await parse_command(match, message, model=model)
 
                 return _func
 
-            func = _wrap(provider, model)
+            func = _wrap(model_name_for_command)
 
-        elif command == "selftest":
-            func = selftest
         else:
-            func = parse_command
+            # Check if it's a dynamic provider or model command
+            if command in model_map or command.capitalize() in all_providers:
+                model_name_for_command = None
+                if command in model_map:
+                    model_name_for_command = model_map[command]
+                elif command.capitalize() in all_providers:
+                    provider_data = all_providers[command.capitalize()]
+                    if provider_data.get("supported_models"):
+                        model_name_for_command = provider_data["supported_models"][0]
+
+                def _wrap(model):
+                    async def _func(match, message):
+                        if model is None:
+                            return (
+                                f"{message.nick}: No working model found for {command}"
+                            )
+                        return await parse_command(match, message, model=model)
+
+                    return _func
+
+                func = _wrap(model_name_for_command)
+            else:
+                func = parse_command
 
         bot.arg_commands_with_message[lower_name] = {
             "function": func,
