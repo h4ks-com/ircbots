@@ -147,11 +147,22 @@ def yes_reponse(args, message):
 async def onConnect(bot: IrcBot):
     for channel in CHANNELS:
         await bot.join(channel)
+    await bot.send_raw(f"MODE {bot.nick} +B")
     await bot.send_message("Hello everyone !!!")
+
+
+async def check_no_bot(bot: IrcBot, message):
+    await bot.send_raw("WHO {}".format(message.nick))
+    resp = await bot.wait_for("who", message.nick, timeout=10, cache_ttl=60)
+    modes = resp.get("modes")
+    if modes is None or "B" in modes:
+        return False
+    return True
 
 
 if __name__ == "__main__":
     utils.setLogging(LEVEL, LOGFILE)
     utils.setPrefix(PREFIX)
     bot = IrcBot(HOST, PORT, NICK, PASSWORD, use_ssl=SSL)
+    bot.add_middleware(check_no_bot)
     bot.runWithCallback(onConnect)
