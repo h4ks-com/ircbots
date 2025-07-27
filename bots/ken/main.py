@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -8,7 +9,7 @@ import time
 
 from cleverbot import Cleverbot
 from dotenv import load_dotenv
-from IrcBot.bot import IrcBot, utils
+from IrcBot.bot import IrcBot, Message, utils
 
 load_dotenv()
 
@@ -151,11 +152,15 @@ async def onConnect(bot: IrcBot):
     await bot.send_message("Hello everyone !!!")
 
 
-async def check_no_bot(bot: IrcBot, message):
+async def check_no_bot(bot: IrcBot, message: Message):
     await bot.send_raw("WHO {}".format(message.nick))
-    resp = await bot.wait_for("who", message.nick, timeout=10, cache_ttl=60)
+    try:
+        resp = await bot.wait_for("who", message.nick, timeout=5, cache_ttl=60)
+    except asyncio.TimeoutError:
+        logging.error("Timeout while checking bot mode for {}".format(message.nick))
+        return True
     modes = resp.get("modes")
-    if modes is None or "B" in modes:
+    if "B" in modes:
         return False
     return True
 
