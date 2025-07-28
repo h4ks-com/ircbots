@@ -155,10 +155,11 @@ async def onConnect(bot: IrcBot):
 async def check_no_bot(bot: IrcBot, message: Message):
     await bot.send_raw("WHO {}".format(message.nick))
     try:
-        resp = await bot.wait_for("who", message.nick, timeout=5, cache_ttl=60)
+        resp = await bot.wait_for("who", message.nick, timeout=2, cache_ttl=60)
     except asyncio.TimeoutError:
         logging.error("Timeout while checking bot mode for {}".format(message.nick))
         return True
+
     modes = resp.get("modes")
     if "B" in modes:
         return False
