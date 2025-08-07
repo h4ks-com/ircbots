@@ -1,0 +1,12 @@
+# Database files
+*.db
+
+# Ongoing games storage
+*_ongoing_games.json
+
+# Virtual environment
+.venv/
+__pycache__/
+
+# Environment variables
+.env
