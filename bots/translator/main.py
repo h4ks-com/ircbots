@@ -6,9 +6,11 @@ from collections import deque
 from copy import deepcopy
 from hashlib import md5
 
+from deep_translator import GoogleTranslator, single_detection
 from dotenv import load_dotenv
-from googletrans import Translator as google_translator
-from IrcBot.bot import Color, IrcBot, Message, utils
+from ircbot import IrcBot, utils
+from ircbot.format import Color
+from ircbot.message import Message
 
 load_dotenv()
 
@@ -19,6 +21,7 @@ PORT = int(os.getenv("IRC_PORT") or 6667)
 NICK = os.getenv("NICK") or "_bqbot"
 PASSWORD = os.getenv("PASSWORD") or ""
 CHANNELS = json.loads(os.getenv("CHANNELS") or "[]")
+DETECTED_LANG_API_KEY = os.getenv("DETECTED_LANG_API_KEY")
 
 ACCEPT_PRIVATE_MESSAGES = True
 DBFILEPATH = NICK + ".db"
@@ -66,22 +69,27 @@ INFO_CMDS = {
 LANGS = [lng.strip() for lng in open("google_iso_lang_codes.txt").readlines()]
 LANG_ALIASES = {"zh": "zh-CN"}
 
-utils.setParseOrderTopBottom()
+# Translator will be initialized per request since deep-translator doesn't maintain state
+
+# Initialize bot
+bot = IrcBot(HOST, PORT, NICK, CHANNELS, PASSWORD, use_ssl=SSL)
+utils.set_loglevel(logging.INFO)
+bot.set_parser_order(True)
 ##################################################
 # BOT COMMANDS DEFINITIONS                       #
 ##################################################
 
 
-auto_nicks = {}
+auto_nicks: dict[str, dict[str, list[dict[str, str]]]] = {}
 
 for r in INFO_CMDS:
 
-    @utils.regex_cmd(r, ACCEPT_PRIVATE_MESSAGES)
-    def info_cmd(m, regexp=r):
+    @bot.regex_cmd(r, ACCEPT_PRIVATE_MESSAGES)
+    def info_cmd(m, regexp: str = r) -> str | list[str]:
         return INFO_CMDS[regexp]
 
 
-async def trans(m, dst, src="auto", autodetect=True) -> str:
+async def trans(m, dst: str, src: str = "auto", autodetect: bool = True) -> str:
     if not isinstance(m, str):
         m = m.group(1)
 
@@ -95,24 +103,38 @@ async def trans(m, dst, src="auto", autodetect=True) -> str:
     m = match[2]
 
     logging.info("Translating: " + m)
-    translator = google_translator()
     try:
-        detected_lang = (await translator.detect(m)).lang
-        if autodetect and detected_lang == dst:
-            logging.info("1. Ignoring source equals destination: " + m)
-            logging.info(f"Source: {detected_lang}  Destination: {dst}")
-            return "?"
-        if autodetect and src != "auto" and not detected_lang.startswith(src):
-            logging.info("2. Ignoring source equals destination: " + m)
-            logging.info(f"Source: {detected_lang}  Destination: {dst}")
-            return "?"
-        msg = await translator.translate(m, dest=dst, src=src)
-        return head + str(msg.text)
+        # Detect language if needed
+        if autodetect:
+            try:
+                detected_lang = single_detection(m, api_key=DETECTED_LANG_API_KEY)
+                if detected_lang == dst:
+                    logging.info("1. Ignoring source equals destination: " + m)
+                    logging.info(f"Source: {detected_lang}  Destination: {dst}")
+                    return "?"
+                if src != "auto" and not detected_lang.startswith(src):
+                    logging.info("2. Ignoring source equals destination: " + m)
+                    logging.info(f"Source: {detected_lang}  Destination: {dst}")
+                    return "?"
+            except Exception as e:
+                logging.warning(f"Language detection failed: {e}")
+                # Continue with translation anyway
+
+        # Create translator instance
+        if src == "auto":
+            translator = GoogleTranslator(target=dst)
+        else:
+            translator = GoogleTranslator(source=src, target=dst)
+
+        translated_text = translator.translate(m)
+        return head + str(translated_text)
     except Exception as e:
         return str(e)
 
 
-async def translate(m, message, dst, src="auto", autodetect=True):
+async def translate(
+    m, message: Message, dst: str, src: str = "auto", autodetect: bool = True
+) -> Message | None:
     translated_msg = await trans(m, dst, src, autodetect)
     if translated_msg:
         return Message(
@@ -121,8 +143,8 @@ async def translate(m, message, dst, src="auto", autodetect=True):
         )
 
 
-@utils.regex_cmd_with_messsage(r"^@(\S\S)(?::(\S\S))?\s(.*)$", ACCEPT_PRIVATE_MESSAGES)
-async def translate_cmd(bot, m, message):
+@bot.regex_cmd_with_message(r"^@(\S\S)(?::(\S\S))?\s(.*)$", ACCEPT_PRIVATE_MESSAGES)
+async def translate_cmd(m, message: Message) -> str | Message | None:
     src = m.group(1)
     dst = m.group(2)
     text = m.group(3)
@@ -139,8 +161,8 @@ async def translate_cmd(bot, m, message):
     )
 
 
-@utils.regex_cmd_with_messsage("^@auto (.*)$", ACCEPT_PRIVATE_MESSAGES)
-def auto_conf(m, message):
+@bot.regex_cmd_with_message("^@auto (.*)$", ACCEPT_PRIVATE_MESSAGES)
+def auto_conf(m, message: Message) -> str | None:
     src = m.group(1).strip()
     if src == "show":
         if message.nick in auto_nicks and message.channel in auto_nicks[message.nick]:
@@ -160,8 +182,8 @@ def auto_conf(m, message):
             return f"<{message.nick}> You don't have any auto rule set on this channel."
 
 
-@utils.regex_cmd_with_messsage("^@auto (.*) (.*)$", ACCEPT_PRIVATE_MESSAGES)
-def auto(m, message):
+@bot.regex_cmd_with_message("^@auto (.*) (.*)$", ACCEPT_PRIVATE_MESSAGES)
+def auto(m, message: Message) -> str | None:
     src = m.group(1).strip()
     dst = m.group(2).strip()
 
@@ -205,12 +227,12 @@ def auto(m, message):
     return f"<{message.nick}> rule added!"
 
 
-back_messages = {}
+back_messages: dict[str, dict[str, deque]] = {}
 
 
 # Implement back translations
-@utils.regex_cmd_with_messsage("^@back (.*)$", ACCEPT_PRIVATE_MESSAGES)
-async def back(bot, m, message):
+@bot.regex_cmd_with_message("^@back (.*)$", ACCEPT_PRIVATE_MESSAGES)
+async def back(m, message: Message) -> str | Message:
     global back_messages
     args = m.group(1).strip().split()
     if len(args) < 2:
@@ -243,12 +265,12 @@ async def back(bot, m, message):
     )
 
 
-babel_users = {}
-babel_prefs = {}
+babel_users: dict[str, dict[str, dict[str, str | int]]] = {}
+babel_prefs: dict[str, dict[str, str]] = {}
 
 
-@utils.regex_cmd_with_messsage("^@babel (.*)$", ACCEPT_PRIVATE_MESSAGES)
-def babel(m, message):
+@bot.regex_cmd_with_message("^@babel (.*)$", ACCEPT_PRIVATE_MESSAGES)
+def babel(m, message: Message) -> str | Message:
     global babel_users, babel_prefs
     dst = m.group(1).strip()
     nick = message.sender_nick
@@ -273,7 +295,9 @@ def babel(m, message):
     )
 
 
-async def babel_warning(m, message, babel_nick, dst, src="en"):
+async def babel_warning(
+    m, message: Message, babel_nick: str, dst: str, src: str = "en"
+) -> Message | None:
     translated_msg = await trans(m, dst, src)
     if translated_msg:
         return Message(
@@ -299,13 +323,15 @@ COLORS = [
 ]
 
 
-def colorize(text):
+def colorize(text: str) -> str:
     # use hash and colors to colorize text
     _hash = int(md5(text.strip().encode()).hexdigest(), 16)
     return Color(text, COLORS[_hash % len(COLORS)]).str + Color.esc
 
 
-async def babel_message(m, message, babel_nick, dst, src="auto"):
+async def babel_message(
+    m, message: Message, babel_nick: str, dst: str, src: str = "auto"
+) -> Message:
     if not isinstance(m, str):
         m = m.group(1)
     translated_msg = await trans(m, dst, src)
@@ -322,11 +348,11 @@ async def ask(
     bot: IrcBot,
     nick: str,
     question: str,
-    expected_input=None,
-    repeat_question=None,
+    expected_input: list[str] | None = None,
+    repeat_question: str | None = None,
     loop: bool = True,
     timeout_message: str = "Response timeout!",
-):
+) -> str | None:
     await bot.send_message(question, nick)
     resp = await bot.wait_for("privmsg", nick, timeout=WAIT_TIMEOUT)
     while loop:
@@ -343,8 +369,8 @@ async def ask(
     return resp.get("text").strip() if resp else None
 
 
-@utils.regex_cmd_with_messsage("^@reset$", ACCEPT_PRIVATE_MESSAGES)
-def reset_babel(m, message):
+@bot.regex_cmd_with_message("^@reset$", ACCEPT_PRIVATE_MESSAGES)
+def reset_babel(m, message: Message) -> Message:
     global babel_prefs
     babel_prefs[message.nick] = {}
     return Message(
@@ -354,8 +380,8 @@ def reset_babel(m, message):
     )
 
 
-@utils.regex_cmd_with_messsage("^(.*)$", ACCEPT_PRIVATE_MESSAGES)
-async def process_auto(bot: IrcBot, m, message):
+@bot.regex_cmd_with_message("^(.*)$", ACCEPT_PRIVATE_MESSAGES)
+async def process_auto(m, message: Message) -> None:
     global babel_users, babel_prefs, back_messages
     channel = message.channel
     if channel not in back_messages:
@@ -548,5 +574,4 @@ async def process_auto(bot: IrcBot, m, message):
 
 
 if __name__ == "__main__":
-    bot = IrcBot(HOST, PORT, NICK, CHANNELS, PASSWORD, use_ssl=SSL)
     bot.run()
