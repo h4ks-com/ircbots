@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import os
@@ -9,7 +8,8 @@ import time
 
 from cleverbot import Cleverbot
 from dotenv import load_dotenv
-from IrcBot.bot import IrcBot, Message, utils
+from ircbot import IrcBot, utils
+from ircbot.message import Message
 
 load_dotenv()
 
@@ -27,7 +27,6 @@ CHANNELS = json.loads(os.getenv("CHANNELS") or "[]")
 
 LOGFILE = None
 LEVEL = logging.INFO
-# LEVEL = logging.INFO
 ADMINS = ["mattf", "handyc", "loudercake"]
 PREFIX = "-"
 MASTER = True
@@ -43,66 +42,74 @@ if len(sys.argv) >= 3:
 
 ##################################################
 
-sessions = {}
+sessions: dict[str, Cleverbot] = {}
 BotType = Cleverbot
+
+# Initialize bot
+bot = IrcBot(
+    HOST, PORT, NICK, CHANNELS, PASSWORD, use_ssl=SSL, capabilities=["message-tags"]
+)
+utils.set_loglevel(LEVEL)
+bot.set_prefix(PREFIX)
 
 
 def reply(session: str, text: str) -> str:
     global sessions, BotType
     if session not in sessions:
-        # sessions[session] = BotType(use_tor_fallback=True)
         sessions[session] = BotType()
     return sessions[session].send(text)
 
 
-@utils.regex_cmd_with_messsage(
+@bot.regex_cmd_with_message(
     rf".*<{NICK}> (\S+) has challenged you to a duel!.*$", False
 )
-def duelaccept(args, message):
+def duelaccept(args, message: Message) -> str | None:
     nick = message.sender_nick
     if nick == GONZOBOT:
-        return f".accept {args[1]}"
+        return f".accept {args.group(1)}"
+    return None
 
 
-@utils.regex_cmd_with_messsage(
+@bot.regex_cmd_with_message(
     rf"<(\S+)> {NICK} has accepted your duel request! The duel will begin in (\d+) seconds.",
     False,
 )
-def duelbang(args, message):
+def duelbang(args, message: Message) -> str | None:
     nick = message.sender_nick
     if nick == GONZOBOT:
         delay = 0.05
-        time.sleep(int(args[2]) - delay)
-        return f".bang {args[1]}"
+        time.sleep(int(args.group(2)) - delay)
+        return f".bang {args.group(1)}"
+    return None
 
 
-@utils.regex_cmd_with_messsage(
+@bot.regex_cmd_with_message(
     rf"(?i)^((?:.*\s)?{NICK}([\s|,|\.|\;|\?|!|:]*)(?:\s.*)?)$", False
 )
-def mention(args, message):
+def mention(args, message: Message) -> str | None:
     if message.text.strip().startswith("."):
-        return
+        return None
     nick = message.sender_nick
     if nick == GONZOBOT:
-        return
-    text = args[1].strip()
-    last = args[2] if args[2] else ""
+        return None
+    text = args.group(1).strip()
+    last = args.group(2) if args.group(2) else ""
     text.replace(f" {NICK}{last}", " ")
     session = f"{NICK}_{nick}"
     return f"{nick}: {reply(session, text)}"
 
 
-@utils.arg_command("restart")
-def restart(args, message):
+@bot.arg_command("restart", "Restart the bot", "")
+def restart(args, message: Message) -> None:
     if message.sender_nick in ADMINS and MASTER:
         subprocess.Popen("pm2 restart ken", shell=True)
 
 
-pids = {}
+pids: dict[str, subprocess.Popen] = {}
 
 
-@utils.arg_command("del")
-def _del(args, message):
+@bot.arg_command("del", "Delete bot instances", "")
+def _del(args, message: Message) -> list[str]:
     nicks = utils.m2list(args)
     output = []
     if message.sender_nick in ADMINS:
@@ -118,8 +125,8 @@ def _del(args, message):
     return output
 
 
-@utils.arg_command("add")
-def add(args, message):
+@bot.arg_command("add", "Add bot instances", "")
+def add(args, message: Message) -> str | None:
     nicks = utils.m2list(args)
     if message.sender_nick in ADMINS and MASTER:
         for nick in nicks:
@@ -132,12 +139,14 @@ def add(args, message):
                 stdout=subprocess.PIPE,
                 shell=True,
             )
+    return None
 
 
-@utils.regex_cmd_with_messsage(r"^\s*YES\s*$", False)
-def yes_reponse(args, message):
+@bot.regex_cmd_with_message(r"^\s*YES\s*$", False)
+def yes_response(args, message: Message) -> str | None:
     if NICK == "ken":
         return "NO"
+    return None
 
 
 ##################################################
@@ -145,30 +154,17 @@ def yes_reponse(args, message):
 ##################################################
 
 
-async def onConnect(bot: IrcBot):
+async def on_connect() -> None:
     for channel in CHANNELS:
         await bot.join(channel)
     await bot.send_raw(f"MODE {bot.nick} +B")
     await bot.send_message("Hello everyone !!!")
 
 
-async def check_no_bot(bot: IrcBot, message: Message):
-    await bot.send_raw("WHO {}".format(message.nick))
-    try:
-        resp = await bot.wait_for("who", message.nick, timeout=2, cache_ttl=60)
-    except asyncio.TimeoutError:
-        logging.error("Timeout while checking bot mode for {}".format(message.nick))
-        return True
-
-    modes = resp.get("modes")
-    if "B" in modes:
-        return False
-    return True
+async def check_no_bot(bot: IrcBot, message: Message) -> bool:
+    return not (message.tags and message.tags.bot)
 
 
 if __name__ == "__main__":
-    utils.setLogging(LEVEL, LOGFILE)
-    utils.setPrefix(PREFIX)
-    bot = IrcBot(HOST, PORT, NICK, PASSWORD, use_ssl=SSL)
     bot.add_middleware(check_no_bot)
-    bot.runWithCallback(onConnect)
+    bot.run_with_callback(on_connect)
