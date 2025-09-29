@@ -6,6 +6,6 @@ requests==2.32.5
 trio-asyncio==0.15.0
 tls-client==1.0.1
 websockets==15.0.1
-beautifulsoup4==4.13.5
+beautifulsoup4==4.14.2
 pygments==2.19.2
 PyCharacterAI==2.2.49
