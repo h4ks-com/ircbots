@@ -1,5 +1,5 @@
 python-dotenv==1.1.1
-re-ircbot==2.0.18.dev
+re-ircbot==2.0.18.dev0
 requests==2.32.5
 linkpreview
 validators
