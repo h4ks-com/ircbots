@@ -1,11 +1,11 @@
-python-dotenv==1.1.1
-async_lru==2.0.5
-re-ircbot==2.0.16.dev0
-requests==2.32.5
+python-dotenv==1.2.2
+async_lru==2.3.0
+re-ircbot==2.0.18.dev0
+requests==2.33.1
 # re-ircbot @ git+https://github.com/matheusfillipe/ircbot.git@526d72fa2cdee54c6195198c63705f30afba25ab
 trio-asyncio==0.15.0
 tls-client==1.0.1
-websockets==15.0.1
-beautifulsoup4==4.13.5
-pygments==2.19.2
-PyCharacterAI==2.2.49
+websockets==16.0
+beautifulsoup4==4.14.3
+pygments==2.20.0
+PyCharacterAI==2.2.50
