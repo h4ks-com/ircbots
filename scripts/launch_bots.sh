@@ -14,6 +14,7 @@ fi
 
 # Launch all bots in parallel
 for bot in bots/*; do
+	[ -f "$bot/DISABLED" ] && continue
 	env_contents=$(jq -r '."'"$bot"'"' <config.json)
 	python scripts/json2env.py "$env_contents" >"$bot/.env"
 

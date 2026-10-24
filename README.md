@@ -10,6 +10,7 @@ Bots go inside [bots](bots) directory. Each bot must have:
 - Optional `requirements-dev.txt` file with the development dependencies of the bot. You can build dev mode with `./scripts/build_envs.sh dev`.
 - Optional `README.md` file with the description of the bot.
 - Optional `.env.example` file with the environment variables that the bot needs.
+- Optional empty `DISABLED` file, which keeps the bot out of the image build and pm2.
 
 
 ## Environment variables in docker image

@@ -11,6 +11,7 @@ global_python="$(which python3)"
 
 # Loop throught directories in bots/ and build a separate environment for each using requirements.txt
 for bot in bots/*; do
+	[ -f "$bot/DISABLED" ] && continue
 	if [ -d "$bot" ]; then
 		pushd "$bot"
 		bot_venv_dir="$(pwd)/.venv"
